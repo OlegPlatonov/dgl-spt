@@ -1,0 +1,1 @@
+python train.py --name test_run --dataset pems-bay --metric MAE --prediction_horizon 12 --only_predict_at_end_of_horizon --direct_lookback_num_steps 48 --to_undirected --add_features_for_nan_targets --model ResNet-MeanAggr --device cuda:0 --amp

@@ -1,0 +1,16 @@
+name: spt
+channels:
+  - pytorch
+  - nvidia
+  - dglteam/label/th21_cu121
+dependencies:
+  - tqdm
+  - pyyaml
+  - pydantic
+  - numpy
+  - pandas
+  - scikit-learn
+  - pytorch=2.1
+  - pytorch-cuda=12.1
+  - torchdata
+  - dgl
