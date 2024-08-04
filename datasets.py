@@ -24,10 +24,11 @@ class Dataset:
     def __init__(self, name, prediction_horizon=12, only_predict_at_end_of_horizon=False,
                  direct_lookback_num_steps=48, reverse_edges=False, to_undirected=False, target_transform='none',
                  transform_targets_for_each_node_separately=False, imputation_startegy_for_nan_targets='prev',
-                 add_features_for_nan_targets=False, use_deepwalk_node_embeddings=False,
-                 do_not_use_temporal_features=False, do_not_use_spatial_features=False,
-                 do_not_use_spatiotemporal_features=False, imputation_strategy_for_num_features='most_frequent',
-                 num_features_transform='none', plr_apply_to_past_targets=False, device='cpu', seed=0):
+                 add_features_for_nan_targets=False, do_not_use_temporal_features=False,
+                 do_not_use_spatial_features=False, do_not_use_spatiotemporal_features=False,
+                 use_deepwalk_node_embeddings=False, initialize_learnable_node_embeddings_with_deepwalk=False,
+                 imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
+                 plr_apply_to_past_targets=False, device='cpu', seed=0):
         print('Preparing data...')
         data = np.load(f'data/{name.replace("-", "_")}.npz', allow_pickle=True)
 
@@ -94,13 +95,18 @@ class Dataset:
             spatiotemporal_features = data['spatiotemporal_node_features'].astype(np.float32)
             spatiotemporal_feature_names = data['spatiotemporal_node_feature_names'].tolist()
 
-        if use_deepwalk_node_embeddings:
+        if use_deepwalk_node_embeddings or initialize_learnable_node_embeddings_with_deepwalk:
             if 'deepwalk_node_embeddings' not in data.keys():
                 raise ValueError('DeepWalk node embeddings are not provided for this dataset.')
 
+        if use_deepwalk_node_embeddings:
             deepwalk_embeddings = data['deepwalk_node_embeddings'].astype(np.float32)
         else:
             deepwalk_embeddings = np.empty((1, num_nodes, 0), dtype=np.float32)
+
+        if initialize_learnable_node_embeddings_with_deepwalk:
+            deepwalk_embeddings_for_initializing_learnable_embeddings = data['deepwalk_node_embeddings']\
+                .astype(np.float32)
 
         num_feature_names_set = set(data['num_feature_names'])
         bin_feature_names_set = set(data['bin_feature_names'])
@@ -276,6 +282,13 @@ class Dataset:
         self.deepwalk_embeddings = torch.from_numpy(deepwalk_embeddings)
         # Might be used for applying numerical feature embeddings.
         self.num_features_mask = torch.from_numpy(num_features_mask)
+
+        if initialize_learnable_node_embeddings_with_deepwalk:
+            self.deepwalk_embeddings_for_initializing_learnable_embeddings = torch.from_numpy(
+                deepwalk_embeddings_for_initializing_learnable_embeddings
+            )
+        else:
+            self.deepwalk_embeddings_for_initializing_learnable_embeddings = None
 
         self.graph = graph.to(device)
 

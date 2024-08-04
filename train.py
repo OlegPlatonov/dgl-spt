@@ -40,10 +40,13 @@ def get_args():
     parser.add_argument('--add_features_for_nan_targets', default=False, action='store_true')
 
     # select node features
-    parser.add_argument('--use_deepwalk_node_embeddings', default=False, action='store_true')
     parser.add_argument('--do_not_use_temporal_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatial_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatiotemporal_features', default=False, action='store_true')
+    parser.add_argument('--use_deepwalk_node_embeddings', default=False, action='store_true')
+    parser.add_argument('--use_learnable_node_embeddings', default=False, action='store_true')
+    parser.add_argument('--learnable_node_embeddings_dim', type=int, default=128)
+    parser.add_argument('--initialize_learnable_node_embeddings_with_deepwalk', default=False, action='store_true')
 
     # numerical features preprocessing
     parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
@@ -175,10 +178,12 @@ def main():
                       transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
                       imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
                       add_features_for_nan_targets=args.add_features_for_nan_targets,
-                      use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
                       do_not_use_temporal_features=args.do_not_use_temporal_features,
                       do_not_use_spatial_features=args.do_not_use_spatial_features,
                       do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
+                      use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
+                      initialize_learnable_node_embeddings_with_deepwalk=\
+                          args.initialize_learnable_node_embeddings_with_deepwalk,
                       imputation_strategy_for_num_features=args.imputation_strategy_for_numerical_features,
                       num_features_transform=args.numerical_features_transform,
                       plr_apply_to_past_targets=args.plr_apply_to_past_targets,
@@ -207,6 +212,13 @@ def main():
                                        num_heads=args.num_heads,
                                        normalization=args.normalization,
                                        dropout=args.dropout,
+                                       use_learnable_node_embeddings=args.use_learnable_node_embeddings,
+                                       num_nodes=dataset.graph.num_nodes(),
+                                       learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
+                                       initialize_learnable_node_embeddings_with_deepwalk=\
+                                           args.initialize_learnable_node_embeddings_with_deepwalk,
+                                       deepwalk_node_embeddings=\
+                                           dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
                                        use_plr=args.plr,
                                        num_features_mask=dataset.num_features_mask,
                                        plr_num_frequencies=args.plr_num_frequencies,
