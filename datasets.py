@@ -22,11 +22,13 @@ class Dataset:
     }
 
     def __init__(self, name, prediction_horizon=12, only_predict_at_end_of_horizon=False,
-                 direct_lookback_num_steps=48, reverse_edges=False, to_undirected=False, target_transform='none',
-                 transform_targets_for_each_node_separately=False, imputation_startegy_for_nan_targets='prev',
-                 add_features_for_nan_targets=False, do_not_use_temporal_features=False,
-                 do_not_use_spatial_features=False, do_not_use_spatiotemporal_features=False,
-                 use_deepwalk_node_embeddings=False, initialize_learnable_node_embeddings_with_deepwalk=False,
+                 direct_lookback_num_steps=48, seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
+                 drop_early_train_timestamps='direct', reverse_edges=False, to_undirected=False,
+                 target_transform='none', transform_targets_for_each_node_separately=False,
+                 imputation_startegy_for_nan_targets='prev', add_features_for_nan_targets=False,
+                 do_not_use_temporal_features=False, do_not_use_spatial_features=False,
+                 do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
+                 initialize_learnable_node_embeddings_with_deepwalk=False,
                  imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
                  plr_apply_to_past_targets=False, device='cpu', seed=0):
         print('Preparing data...')
@@ -200,49 +202,99 @@ class Dataset:
         if to_undirected:
             graph = dgl.to_bidirected(graph)
 
-        # PREPARE INDICES OF PAST TARGETS THAT WILL BE USED AS FEATURES, FUTURE TARGETS THAT WILL BE PREDICTED,
-        # TIMESTAMPS AT WHICH PREDICTIONS WILL BE MADE
+        # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO PAST TARGETS THAT WILL BE USED AS FEATURES
 
-        past_timestamp_indices_for_features = - np.arange(start=0, stop=direct_lookback_num_steps)
+        if seasonal_lookback_periods is not None and seasonal_lookback_num_steps is None:
+            raise ValueError(
+                'If argument seasonal_lookback_periods is provided, then argument seasonal_lookback_num_steps '
+                'should also be provided.')
+        elif seasonal_lookback_periods is None and seasonal_lookback_num_steps is not None:
+            raise ValueError(
+                'If argument seasonal_lookback_num_steps is provided, then argument seasonal_lookback_periods '
+                'should also be provided.')
+        elif (seasonal_lookback_periods is not None and
+              len(seasonal_lookback_periods) != len(seasonal_lookback_num_steps)):
+            raise ValueError(
+                'Arguments seasonal_lookback_periods and seasonal_lookback_num_steps should be provided with '
+                'the same number of values.')
 
-        past_targets_features_dim = len(past_timestamp_indices_for_features) * (1 + add_features_for_nan_targets)
+        past_timestamp_shifts_for_features = - np.arange(start=0, stop=direct_lookback_num_steps)
+
+        if seasonal_lookback_periods is not None:
+            # For each predicted target at timestamp t we add to features target values from the past at the following
+            # timestamps: t - period, t - period * 2, ..., t - period * num_steps.
+            all_seasonal_shifts = []
+            for period, num_steps in zip(seasonal_lookback_periods, seasonal_lookback_num_steps):
+                start_shifts = - period * np.arange(start=1, stop=num_steps + 1)
+                for start_shift in start_shifts:
+                    if only_predict_at_end_of_horizon:
+                        cur_shifts = np.array([start_shift + prediction_horizon])
+                    else:
+                        cur_shifts = np.arange(start=start_shift + 1, stop=start_shift + prediction_horizon + 1)
+
+                    all_seasonal_shifts.append(cur_shifts)
+
+            all_seasonal_shifts = np.hstack(all_seasonal_shifts)
+            all_seasonal_shifts = all_seasonal_shifts.clip(max=0)
+
+            past_timestamp_shifts_for_features = np.hstack([past_timestamp_shifts_for_features, all_seasonal_shifts])
+            past_timestamp_shifts_for_features = np.unique(past_timestamp_shifts_for_features)
+            past_timestamp_shifts_for_features.sort()
+            # A copy is made after reversing the array because otherwise the stride in the array will be negative,
+            # and because of this it will not be possible to load it into a torch tensor using torch.from_numpy.
+            past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
+
+        past_targets_features_dim = len(past_timestamp_shifts_for_features) * (1 + add_features_for_nan_targets)
         num_features_mask_extentsion = np.zeros(past_targets_features_dim, dtype=bool)
         if plr_apply_to_past_targets:
-            num_features_mask_extentsion[:len(past_timestamp_indices_for_features)] = 1
+            num_features_mask_extentsion[:len(past_timestamp_shifts_for_features)] = 1
 
         num_features_mask = np.concatenate([num_features_mask_extentsion, num_features_mask], axis=0)
 
-        if only_predict_at_end_of_horizon:
-            future_timestamp_indices_for_prediction = np.array([prediction_horizon])
-        else:
-            future_timestamp_indices_for_prediction = np.arange(start=1, stop=prediction_horizon + 1)
+        # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO FUTURE TARGETS THAT WILL BE PREDICTED
 
-        # Indices of timestamps at which predictions can be made for a particular split.
-        max_prediction_index = future_timestamp_indices_for_prediction.max()
+        if only_predict_at_end_of_horizon:
+            future_timestamp_shifts_for_prediction = np.array([prediction_horizon])
+        else:
+            future_timestamp_shifts_for_prediction = np.arange(start=1, stop=prediction_horizon + 1)
+
+        # PREPARE INDICES OF TIMESTAMPS AT WHICH PREDICTIONS WILL BE MADE FOR EACH SPLIT
+
+        if drop_early_train_timestamps == 'all':
+            first_train_timestamp = - past_timestamp_shifts_for_features.min()
+        elif drop_early_train_timestamps == 'direct':
+            first_train_timestamp = direct_lookback_num_steps - 1
+        elif drop_early_train_timestamps == 'none':
+            first_train_timestamp = 0
+        else:
+            raise ValueError(f'Unknown value for drop_early_train_timestamps argument: {drop_early_train_timestamps}.')
+
+        first_train_timestamp = max(first_train_timestamp, 0)
+
+        max_prediction_shift = future_timestamp_shifts_for_prediction[-1]
+
+        train_timestamps = all_train_targets_timestamps[first_train_timestamp:-max_prediction_shift]
 
         val_timestamps = np.concatenate(
-            [np.array([all_train_targets_timestamps[-1]]), all_val_targets_timestamps[:-max_prediction_index]], axis=0
+            [np.array([all_train_targets_timestamps[-1]]), all_val_targets_timestamps[:-max_prediction_shift]], axis=0
         )
 
         test_timestamps = np.concatenate(
-            [np.array([all_val_targets_timestamps[-1]]), all_test_targets_timestamps[:-max_prediction_index]], axis=0
+            [np.array([all_val_targets_timestamps[-1]]), all_test_targets_timestamps[:-max_prediction_shift]], axis=0
         )
-
-        first_train_timestamp = direct_lookback_num_steps - 1 if direct_lookback_num_steps > 0 else 0
-        train_timestamps = all_train_targets_timestamps[first_train_timestamp:-max_prediction_index]
 
         # Remove train timestamps for which all targets are NaNs.
         train_targets_nan_mask = targets_nan_mask[all_train_targets_timestamps[first_train_timestamp + 1:]]
         if only_predict_at_end_of_horizon or prediction_horizon == 1:
-            # In this case max_prediction_index is the only prediction index.
-            train_targets_nan_mask = train_targets_nan_mask[max_prediction_index - 1:]
-            # train_targets_nan_mask shape is now [len(train_timestamps) x num_nodes]
+            # In this case max_prediction_shift is the only prediction shift.
+            # Transform train_targets_nan_mask to shape [len(train_timestamps) x num_nodes].
+            train_targets_nan_mask = train_targets_nan_mask[max_prediction_shift - 1:]
             drop_train_timestamps_mask = train_targets_nan_mask.all(axis=1)
         else:
+            # Transform train_targets_nan_mask to shape [len(train_timestamps) x num_nodes x prediction_horizon].
             train_targets_nan_mask = torch.from_numpy(train_targets_nan_mask)
             train_targets_nan_mask = train_targets_nan_mask.unfold(dimension=0, size=prediction_horizon, step=1)
             train_targets_nan_mask = train_targets_nan_mask.numpy()
-            # train_targets_nan_mask shape is now [len(train_timestamps) x num_nodes x prediction_horizon]
             drop_train_timestamps_mask = train_targets_nan_mask.all(axis=(1, 2))
 
         train_timestamps = train_timestamps[~drop_train_timestamps_mask]
@@ -292,8 +344,8 @@ class Dataset:
 
         self.graph = graph.to(device)
 
-        self.future_timestamp_indices_for_prediction = torch.from_numpy(future_timestamp_indices_for_prediction)
-        self.past_timestamp_indices_for_features = torch.from_numpy(past_timestamp_indices_for_features)
+        self.future_timestamp_shifts_for_prediction = torch.from_numpy(future_timestamp_shifts_for_prediction)
+        self.past_timestamp_shifts_for_features = torch.from_numpy(past_timestamp_shifts_for_features)
 
         self.add_features_for_nan_targets = add_features_for_nan_targets
         self.plr_apply_to_past_targets = plr_apply_to_past_targets
@@ -325,18 +377,25 @@ class Dataset:
         self.end_of_epoch = False
 
     def get_timestamp_data(self, timestamp):
-        targets = self.targets[timestamp + self.future_timestamp_indices_for_prediction].T.squeeze(1)
-        targets_nan_mask = self.targets_nan_mask[timestamp + self.future_timestamp_indices_for_prediction].T.squeeze(1)
+        future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
+        targets = self.targets[future_timestamps].T.squeeze(1)
+        targets_nan_mask = self.targets_nan_mask[future_timestamps].T.squeeze(1)
 
         temporal_features = self.temporal_features[timestamp].expand(self.num_nodes, -1)
         spatial_features = self.spatial_features.squeeze(0)
         spatiotemporal_features = self.spatiotemporal_features[timestamp]
         deepwalk_embeddings = self.deepwalk_embeddings.squeeze(0)
 
-        past_targets = self.targets[timestamp + self.past_timestamp_indices_for_features].T
+        past_timestamps = timestamp + self.past_timestamp_shifts_for_features
+        negative_mask = (past_timestamps < 0)
+        past_timestamps[negative_mask] = 0
+
+        past_targets = self.targets[past_timestamps].T
 
         if self.add_features_for_nan_targets:
-            past_targets_nan_mask = self.targets_nan_mask[timestamp + self.past_timestamp_indices_for_features].T
+            past_targets_nan_mask = self.targets_nan_mask[past_timestamps]
+            past_targets_nan_mask[negative_mask] = 1
+            past_targets_nan_mask = past_targets_nan_mask.T
         else:
             past_targets_nan_mask = torch.empty(self.num_nodes, 0)
 
@@ -388,9 +447,9 @@ class Dataset:
             # If we only predict target for a single timestamp (which is the case if only_predict_at_end_of_horizon
             # is True or if prediction_horizon is 1), we need to shift all targets by the number of timestamps between
             # the observed timestamp and the timestamp of prediction.
-            future_timestamp_idx = self.future_timestamp_indices_for_prediction[0]
-            targets = targets[future_timestamp_idx - 1:]
-            targets_nan_mask = targets_nan_mask[future_timestamp_idx - 1:]
+            future_timestamp_shift = self.future_timestamp_shifts_for_prediction[0]
+            targets = targets[future_timestamp_shift - 1:]
+            targets_nan_mask = targets_nan_mask[future_timestamp_shift - 1:]
         else:
             # If we predict targets for multiple timestamps, we need to go over the targets with a sliding window
             # of length num_predictions and create a tensor of shape (num_timestamps, num_nodes, num_predictions).

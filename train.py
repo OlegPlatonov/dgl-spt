@@ -23,6 +23,11 @@ def get_args():
     parser.add_argument('--prediction_horizon', type=int, default=12)
     parser.add_argument('--only_predict_at_end_of_horizon', default=False, action='store_true')
     parser.add_argument('--direct_lookback_num_steps', type=int, default=48)
+    parser.add_argument('--seasonal_lookback_periods', nargs='+', type=int, default=None,
+                        help='Should have the same number of values as seasonal_lookback_num_steps argument.')
+    parser.add_argument('--seasonal_lookback_num_steps', nargs='+', type=int, default=None,
+                        help='Should have the same number of values as seasonal_lookback_periods argument.')
+    parser.add_argument('--drop_early_train_timestamps', type=str, default='direct', choices=['all', 'direct', 'none'])
 
     # graph preprocessing (use at most one of these arguments)
     parser.add_argument('--reverse_edges', default=False, action='store_true')
@@ -172,6 +177,9 @@ def main():
                       prediction_horizon=args.prediction_horizon,
                       only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,
                       direct_lookback_num_steps=args.direct_lookback_num_steps,
+                      seasonal_lookback_periods=args.seasonal_lookback_periods,
+                      seasonal_lookback_num_steps=args.seasonal_lookback_num_steps,
+                      drop_early_train_timestamps=args.drop_early_train_timestamps,
                       reverse_edges=args.reverse_edges,
                       to_undirected=args.to_undirected,
                       target_transform=args.target_transform,
