@@ -20,8 +20,11 @@ def get_args():
                                  'city-roads-spt-L', 'weatherbecnh-era5', 'weatherbecnh-era5-usa'])
     parser.add_argument('--metric', type=str, default='RMSE', choices=['RMSE', 'MAE'])
 
+    # Select future timestamps targets from which will be used for prediction.
     parser.add_argument('--prediction_horizon', type=int, default=12)
     parser.add_argument('--only_predict_at_end_of_horizon', default=False, action='store_true')
+
+    # Select past timestamps targets from which will be used as features.
     parser.add_argument('--direct_lookback_num_steps', type=int, default=48)
     parser.add_argument('--seasonal_lookback_periods', nargs='+', type=int, default=None,
                         help='Should have the same number of values as seasonal_lookback_num_steps argument.')
@@ -29,22 +32,22 @@ def get_args():
                         help='Should have the same number of values as seasonal_lookback_periods argument.')
     parser.add_argument('--drop_early_train_timestamps', type=str, default='direct', choices=['all', 'direct', 'none'])
 
-    # graph preprocessing (use at most one of these arguments)
+    # Graph preprocessing (use at most one of these arguments).
     parser.add_argument('--reverse_edges', default=False, action='store_true')
     parser.add_argument('--to_undirected', default=False, action='store_true')
 
-    # target preprocessing
+    # Target preprocessing.
     parser.add_argument('--target_transform', type=str, default='standard-scaler',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
     parser.add_argument('--transform_targets_for_each_node_separately', default=False, action='store_true')
 
-    # target imputation
+    # Target imputation.
     parser.add_argument('--imputation_startegy_for_nan_targets', type=str, default='prev', choices=['prev', 'zero'])
     parser.add_argument('--add_features_for_nan_targets', default=False, action='store_true')
 
-    # select node features
+    # Select node features.
     parser.add_argument('--do_not_use_temporal_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatial_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatiotemporal_features', default=False, action='store_true')
@@ -53,7 +56,7 @@ def get_args():
     parser.add_argument('--learnable_node_embeddings_dim', type=int, default=128)
     parser.add_argument('--initialize_learnable_node_embeddings_with_deepwalk', default=False, action='store_true')
 
-    # numerical features preprocessing
+    # Numerical features preprocessing.
     parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
                         choices=['mean', 'median', 'most_frequent'],
                         help='Only used for datasets that have NaNs in static numerical features.')
@@ -62,7 +65,7 @@ def get_args():
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
 
-    # PLR embeddings for numerical features
+    # PLR embeddings for numerical features.
     parser.add_argument('--plr', default=False, action='store_true', help='Use PLR embeddings for numerical features.')
     parser.add_argument('--plr_apply_to_past_targets', default=False, action='store_true')
     parser.add_argument('--plr_num_frequencies', type=int, default=48, help='Only used if plr is True')
@@ -70,7 +73,7 @@ def get_args():
     parser.add_argument('--plr_embedding_dim', type=int, default=16, help='Only used if plr is True')
     parser.add_argument('--plr_lite', default=False, action='store_true', help='Only used if plr is True')
 
-    # model architecture
+    # Model architecture.
     parser.add_argument('--model', type=str, default='ResNet-MeanAggr',
                         choices=['linear', 'ResNet', 'ResNet-MeanAggr', 'ResNet-AttnGATAggr', 'ResNet-AttnTrfAggr'])
     parser.add_argument('--num_layers', type=int, default=2)
@@ -78,11 +81,11 @@ def get_args():
     parser.add_argument('--num_heads', type=int, default=4)
     parser.add_argument('--normalization', type=str, default='LayerNorm', choices=['None', 'LayerNorm', 'BatchNorm'])
 
-    # regularization
+    # Regularization.
     parser.add_argument('--dropout', type=float, default=0)
     parser.add_argument('--weight_decay', type=float, default=0)
 
-    # training parameters
+    # Training parameters.
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--num_epochs', type=int, default=10)
     parser.add_argument('--num_accumulation_steps', type=int, default=10)
