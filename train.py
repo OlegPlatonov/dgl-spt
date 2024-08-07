@@ -129,66 +129,53 @@ def optimizer_step(loss, optimizer, scaler):
 
 
 @torch.no_grad()
-def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=False):
-    val_preds = []
-    for val_timestamps_batch in val_timestamps_loader:
+def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=False):
+    preds = []
+    for timestamps_batch in timestamps_loader:
         padded = False
-        if len(val_timestamps_batch) != dataset.eval_batch_size:
-            padding_size = dataset.eval_batch_size - len(val_timestamps_batch)
+        if len(timestamps_batch) != dataset.eval_batch_size:
+            padding_size = dataset.eval_batch_size - len(timestamps_batch)
             padding = torch.zeros(padding_size, dtype=torch.int32)
-            val_timestamps_batch = torch.cat([val_timestamps_batch, padding], axis=0)
+            timestamps_batch = torch.cat([timestamps_batch, padding], axis=0)
             padded = True
 
-        features, _, _ = dataset.get_timestamps_batch_data(val_timestamps_batch)
+        features, _, _ = dataset.get_timestamps_batch_data(timestamps_batch)
         with autocast(enabled=amp):
-            preds = model(graph=dataset.eval_batched_graph, x=features)
+            cur_preds = model(graph=dataset.eval_batched_graph, x=features)
 
-        preds = preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
+        cur_preds = cur_preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
         if padded:
-            preds = preds[:-padding_size]
+            cur_preds = cur_preds[:-padding_size]
 
-        val_preds.append(preds)
+        preds.append(cur_preds)
 
-    val_preds = torch.cat(val_preds, axis=0)
-    val_preds_orig = dataset.transform_preds_to_orig(val_preds)
+    preds = torch.cat(preds, axis=0)
+    preds_orig = dataset.transform_preds_to_orig(preds)
 
-    val_targets_orig, val_targets_nan_mask = dataset.get_val_targets_orig()
+    if split == 'val':
+        targets_orig, targets_nan_mask = dataset.get_val_targets_orig()
+    elif split == 'test':
+        targets_orig, targets_nan_mask = dataset.get_test_targets_orig()
+    else:
+        raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    val_loss = loss_fn(input=val_preds_orig, target=val_targets_orig, reduction='none')
-    val_loss[val_targets_nan_mask] = 0
-    val_loss = val_loss.sum() / (~val_targets_nan_mask).sum()
+    loss = loss_fn(input=preds_orig, target=targets_orig, reduction='none')
+    loss[targets_nan_mask] = 0
+    loss = loss.sum() / (~targets_nan_mask).sum()
 
-    val_metric = val_loss.sqrt().item() if metric == 'RMSE' else val_loss.item()
+    metric = loss.sqrt().item() if metric == 'RMSE' else loss.item()
 
-    test_preds = []
-    for test_timestamps_batch in test_timestamps_loader:
-        padded = False
-        if len(test_timestamps_batch) != dataset.eval_batch_size:
-            padding_size = dataset.eval_batch_size - len(test_timestamps_batch)
-            padding = torch.zeros(padding_size, dtype=torch.int32)
-            test_timestamps_batch = torch.cat([test_timestamps_batch, padding], axis=0)
-            padded = True
+    return metric
 
-        features, _, _ = dataset.get_timestamps_batch_data(test_timestamps_batch)
-        with autocast(enabled=amp):
-            preds = model(graph=dataset.eval_batched_graph, x=features)
 
-        preds = preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
-        if padded:
-            preds = preds[:-padding_size]
-
-        test_preds.append(preds)
-
-    test_preds = torch.cat(test_preds, axis=0)
-    test_preds_orig = dataset.transform_preds_to_orig(test_preds)
-
-    test_targets_orig, test_targets_nan_mask = dataset.get_test_targets_orig()
-
-    test_loss = loss_fn(input=test_preds_orig, target=test_targets_orig, reduction='none')
-    test_loss[test_targets_nan_mask] = 0
-    test_loss = test_loss.sum() / (~test_targets_nan_mask).sum()
-
-    test_metric = test_loss.sqrt().item() if metric == 'RMSE' else test_loss.item()
+@torch.no_grad()
+def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=False):
+    val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
+                                         timestamps_loader=val_timestamps_loader,
+                                         loss_fn=loss_fn, metric=metric, amp=amp)
+    test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
+                                          timestamps_loader=test_timestamps_loader,
+                                          loss_fn=loss_fn, metric=metric, amp=amp)
 
     metrics = {
         f'val {metric}': val_metric,
@@ -309,9 +296,10 @@ def main():
                 if (optimizer_steps_till_eval == 0 or
                         train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)):
                     model.eval()
-                    metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
-                                       test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn,
-                                       metric=args.metric, amp=args.amp)
+                    metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
+                                                       val_timestamps_loader=val_timestamps_loader,
+                                                       test_timestamps_loader=test_timestamps_loader,
+                                                       loss_fn=loss_fn, metric=args.metric, amp=args.amp)
                     logger.update_metrics(metrics=metrics, step=optimizer_steps_done)
                     model.train()
 
