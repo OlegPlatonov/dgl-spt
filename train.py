@@ -110,7 +110,7 @@ def get_args():
 
 
 def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=False):
-    features, targets, targets_nan_mask = dataset.get_timestamps_batch_data(timestamps_batch)
+    features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets(timestamps_batch)
 
     with autocast(enabled=amp):
         preds = model(graph=dataset.train_batched_graph, x=features)
@@ -139,7 +139,7 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
             timestamps_batch = torch.cat([timestamps_batch, padding], axis=0)
             padded = True
 
-        features, _, _ = dataset.get_timestamps_batch_data(timestamps_batch)
+        features = dataset.get_timestamps_batch_features(timestamps_batch)
         with autocast(enabled=amp):
             cur_preds = model(graph=dataset.eval_batched_graph, x=features)
 
