@@ -1,5 +1,6 @@
 import argparse
 from tqdm import tqdm
+from more_itertools import batched
 
 import torch
 from torch.nn import functional as F
@@ -88,7 +89,13 @@ def get_args():
     # Training parameters.
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--num_epochs', type=int, default=10)
-    parser.add_argument('--num_accumulation_steps', type=int, default=10)
+    parser.add_argument('--train_batch_size', type=int, default=10,
+                        help='Effective batch size for each optimization step equals '
+                             'train_batch_size * num_accumulation_steps.')
+    parser.add_argument('--eval_batch_size', type=int, default=None,
+                        help='If None, it is set to be the same as train_batch_size. But since evaluation requires '
+                             'less VRAM han training, larger batch size can be used.')
+    parser.add_argument('--num_accumulation_steps', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=1000,
                         help='Evaluate after this many optimization steps. If None, only evaluate at the end of epoch.')
 
@@ -102,11 +109,11 @@ def get_args():
     return args
 
 
-def compute_loss(model, dataset, timestamp, loss_fn, amp=False):
-    features, targets, targets_nan_mask = dataset.get_timestamp_data(timestamp)
+def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=False):
+    features, targets, targets_nan_mask = dataset.get_timestamps_batch_data(timestamps_batch)
 
     with autocast(enabled=amp):
-        preds = model(graph=dataset.graph, x=features)
+        preds = model(graph=dataset.train_batched_graph, x=features)
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
         loss = loss.sum() / (~targets_nan_mask).sum()
@@ -124,14 +131,26 @@ def optimizer_step(loss, optimizer, scaler):
 @torch.no_grad()
 def evaluate(model, dataset, loss_fn, metric, amp=False):
     val_preds = []
-    for val_timestamp in dataset.val_timestamps:
-        features, _, _ = dataset.get_timestamp_data(val_timestamp)
+    for val_timestamps_batch in batched(dataset.val_timestamps.tolist(), dataset.eval_batch_size):
+        padded = False
+        if len(val_timestamps_batch) != dataset.eval_batch_size:
+            padding_size = dataset.eval_batch_size - len(val_timestamps_batch)
+            val_timestamps_batch = val_timestamps_batch + tuple(0 for _ in range(padding_size))
+            padded = True
+
+        val_timestamps_batch = torch.tensor(val_timestamps_batch)
+
+        features, _, _ = dataset.get_timestamps_batch_data(val_timestamps_batch)
         with autocast(enabled=amp):
-            preds = model(graph=dataset.graph, x=features)
+            preds = model(graph=dataset.eval_batched_graph, x=features)
+
+        preds = preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
+        if padded:
+            preds = preds[:-padding_size]
 
         val_preds.append(preds)
 
-    val_preds = torch.stack(val_preds, dim=0)
+    val_preds = torch.cat(val_preds, axis=0)
     val_preds_orig = dataset.transform_preds_to_orig(val_preds)
 
     val_targets_orig, val_targets_nan_mask = dataset.get_val_targets_orig()
@@ -143,14 +162,26 @@ def evaluate(model, dataset, loss_fn, metric, amp=False):
     val_metric = val_loss.sqrt().item() if metric == 'RMSE' else val_loss.item()
 
     test_preds = []
-    for test_timestamp in dataset.test_timestamps:
-        features, _, _ = dataset.get_timestamp_data(test_timestamp)
+    for test_timestamps_batch in batched(dataset.test_timestamps.tolist(), dataset.eval_batch_size):
+        padded = False
+        if len(test_timestamps_batch) != dataset.eval_batch_size:
+            padding_size = dataset.eval_batch_size - len(test_timestamps_batch)
+            test_timestamps_batch = test_timestamps_batch + tuple(0 for _ in range(padding_size))
+            padded = True
+
+        test_timestamps_batch = torch.tensor(test_timestamps_batch)
+
+        features, _, _ = dataset.get_timestamps_batch_data(test_timestamps_batch)
         with autocast(enabled=amp):
-            preds = model(graph=dataset.graph, x=features)
+            preds = model(graph=dataset.eval_batched_graph, x=features)
+
+        preds = preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
+        if padded:
+            preds = preds[:-padding_size]
 
         test_preds.append(preds)
 
-    test_preds = torch.stack(test_preds, dim=0)
+    test_preds = torch.cat(test_preds, axis=0)
     test_preds_orig = dataset.transform_preds_to_orig(test_preds)
 
     test_targets_orig, test_targets_nan_mask = dataset.get_test_targets_orig()
@@ -198,6 +229,8 @@ def main():
                       imputation_strategy_for_num_features=args.imputation_strategy_for_numerical_features,
                       num_features_transform=args.numerical_features_transform,
                       plr_apply_to_past_targets=args.plr_apply_to_past_targets,
+                      train_batch_size=args.train_batch_size,
+                      eval_batch_size=args.eval_batch_size,
                       device=args.device)
 
     if args.metric == 'RMSE':
@@ -209,7 +242,7 @@ def main():
 
     logger = Logger(args)
 
-    num_steps = len(dataset.train_timestamps) * args.num_epochs
+    num_steps = (len(dataset.train_timestamps) // args.train_batch_size) * args.num_epochs
 
     for run in range(1, args.num_runs + 1):
         if args.model == 'linear':
@@ -253,8 +286,8 @@ def main():
         model.train()
         with tqdm(total=num_steps, desc=f'Run {run}') as progress_bar:
             for step in range(1, num_steps + 1):
-                cur_train_timestamp = dataset.get_train_timestamp()
-                cur_step_loss = compute_loss(model=model, dataset=dataset, timestamp=cur_train_timestamp,
+                cur_train_timestamps_batch = dataset.get_train_timestamps_batch()
+                cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
                                              loss_fn=loss_fn, amp=args.amp)
                 loss += cur_step_loss
                 steps_till_optimizer_step -= 1

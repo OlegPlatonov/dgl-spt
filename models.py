@@ -91,7 +91,8 @@ class NeuralNetworkModel(nn.Module):
             x = torch.cat([x_num_embedded, x[:, ~self.num_features_mask]], axis=1)
 
         if self.use_learnable_node_embeddings:
-            node_indices = torch.arange(graph.num_nodes(), dtype=torch.int32, device=self.node_embeddings.weight.device)
+            node_indices = torch.arange(graph.batch_num_nodes()[0], dtype=torch.int32,
+                                        device=self.node_embeddings.weight.device).repeat(graph.batch_size)
             node_embs = self.node_embeddings(node_indices)
             x = torch.cat([x, node_embs], axis=1)
 

@@ -30,7 +30,7 @@ class Dataset:
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
-                 plr_apply_to_past_targets=False, device='cpu', seed=0):
+                 plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None, device='cpu', seed=0):
         print('Preparing data...')
         data = np.load(f'data/{name.replace("-", "_")}.npz', allow_pickle=True)
 
@@ -202,6 +202,10 @@ class Dataset:
         if to_undirected:
             graph = dgl.to_bidirected(graph)
 
+        train_batched_graph = dgl.batch([graph for _ in range(train_batch_size)])
+        if eval_batch_size is not None:
+            eval_batched_graph = dgl.batch([graph for _ in range(eval_batch_size)])
+
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO PAST TARGETS THAT WILL BE USED AS FEATURES
 
         if seasonal_lookback_periods is not None and seasonal_lookback_num_steps is None:
@@ -244,10 +248,11 @@ class Dataset:
             # and because of this it will not be possible to load it into a torch tensor using torch.from_numpy.
             past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
 
-        past_targets_features_dim = len(past_timestamp_shifts_for_features) * (1 + add_features_for_nan_targets)
-        num_features_mask_extentsion = np.zeros(past_targets_features_dim, dtype=bool)
+        past_targets_features_dim = len(past_timestamp_shifts_for_features)
+        extension_len = past_targets_features_dim if not add_features_for_nan_targets else past_targets_features_dim * 2
+        num_features_mask_extentsion = np.zeros(extension_len, dtype=bool)
         if plr_apply_to_past_targets:
-            num_features_mask_extentsion[:len(past_timestamp_shifts_for_features)] = 1
+            num_features_mask_extentsion[:past_targets_features_dim] = 1
 
         num_features_mask = np.concatenate([num_features_mask_extentsion, num_features_mask], axis=0)
 
@@ -311,13 +316,13 @@ class Dataset:
         self.last_timestamp_datetime = last_timestamp_datetime
         self.timestamp_frequency = timestamp_frequency
 
-        self.all_train_targets_timestamps = all_train_targets_timestamps
-        self.all_val_targets_timestamps = all_val_targets_timestamps
-        self.all_test_targets_timestamps = all_test_targets_timestamps
+        self.all_train_targets_timestamps = torch.from_numpy(all_train_targets_timestamps)
+        self.all_val_targets_timestamps = torch.from_numpy(all_val_targets_timestamps)
+        self.all_test_targets_timestamps = torch.from_numpy(all_test_targets_timestamps)
 
-        self.train_timestamps = train_timestamps
-        self.val_timestamps = val_timestamps
-        self.test_timestamps = test_timestamps
+        self.train_timestamps = torch.from_numpy(train_timestamps)
+        self.val_timestamps = torch.from_numpy(val_timestamps)
+        self.test_timestamps = torch.from_numpy(test_timestamps)
 
         self.targets_orig = torch.from_numpy(targets_orig)
         self.targets = torch.from_numpy(targets)
@@ -342,7 +347,12 @@ class Dataset:
         else:
             self.deepwalk_embeddings_for_initializing_learnable_embeddings = None
 
-        self.graph = graph.to(device)
+        self.train_batch_size = train_batch_size
+        self.eval_batch_size = train_batch_size if eval_batch_size is None else eval_batch_size
+
+        self.graph = graph
+        self.train_batched_graph = train_batched_graph.to(device)
+        self.eval_batched_graph = self.train_batched_graph if eval_batch_size is None else eval_batched_graph.to(device)
 
         self.future_timestamp_shifts_for_prediction = torch.from_numpy(future_timestamp_shifts_for_prediction)
         self.past_timestamp_shifts_for_features = torch.from_numpy(past_timestamp_shifts_for_features)
@@ -351,8 +361,10 @@ class Dataset:
         self.plr_apply_to_past_targets = plr_apply_to_past_targets
 
         self.targets_dim = 1 if only_predict_at_end_of_horizon else prediction_horizon
-        self.features_dim = (past_targets_features_dim + temporal_features.shape[2] + spatial_features.shape[2] +
-                             spatiotemporal_features.shape[2] + deepwalk_embeddings.shape[2])
+        self.past_targets_features_dim = past_targets_features_dim
+        self.features_dim = (past_targets_features_dim + past_targets_features_dim * add_features_for_nan_targets +
+                             temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
+                             deepwalk_embeddings.shape[2])
 
         self.cur_epoch_train_timestamps_left = train_timestamps.tolist()
         random.seed(seed)
@@ -363,13 +375,26 @@ class Dataset:
         try:
             timestamp = self.cur_epoch_train_timestamps_left.pop()
         except IndexError:
-            raise IndexError('There are no training timestamps left. Call start_new_epoch method of the dataset '
-                             'to start a new epoch.')
+            raise IndexError('There are no training timestamps left. Call start_new_epoch method '
+                             'of the dataset to start a new epoch.')
 
         if not self.cur_epoch_train_timestamps_left:
             self.end_of_epoch = True
 
         return timestamp
+
+    def get_train_timestamps_batch(self):
+        if len(self.cur_epoch_train_timestamps_left) < self.train_batch_size:
+            raise IndexError('There are not enough training timestamps left. Call start_new_epoch method '
+                             'of the dataset to start a new epoch.')
+
+        timestamps_batch = torch.tensor(self.cur_epoch_train_timestamps_left[-self.train_batch_size:])
+        del self.cur_epoch_train_timestamps_left[-self.train_batch_size:]
+
+        if len(self.cur_epoch_train_timestamps_left) < self.train_batch_size:
+            self.end_of_epoch = True
+
+        return timestamps_batch
 
     def start_new_epoch(self):
         self.cur_epoch_train_timestamps_left = self.train_timestamps.tolist()
@@ -380,11 +405,6 @@ class Dataset:
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
         targets = self.targets[future_timestamps].T.squeeze(1)
         targets_nan_mask = self.targets_nan_mask[future_timestamps].T.squeeze(1)
-
-        temporal_features = self.temporal_features[timestamp].expand(self.num_nodes, -1)
-        spatial_features = self.spatial_features.squeeze(0)
-        spatiotemporal_features = self.spatiotemporal_features[timestamp]
-        deepwalk_embeddings = self.deepwalk_embeddings.squeeze(0)
 
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
         negative_mask = (past_timestamps < 0)
@@ -398,6 +418,54 @@ class Dataset:
             past_targets_nan_mask = past_targets_nan_mask.T
         else:
             past_targets_nan_mask = torch.empty(self.num_nodes, 0)
+
+        temporal_features = self.temporal_features[timestamp].expand(self.num_nodes, -1)
+        spatial_features = self.spatial_features.squeeze(0)
+        spatiotemporal_features = self.spatiotemporal_features[timestamp]
+        deepwalk_embeddings = self.deepwalk_embeddings.squeeze(0)
+
+        features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
+                              spatiotemporal_features, deepwalk_embeddings], axis=1)
+
+        return features.to(self.device), targets.to(self.device), targets_nan_mask.to(self.device)
+
+    def get_timestamps_batch_data(self, timestamps_batch):
+        batch_size = len(timestamps_batch)
+
+        # The shape of future_timestamps is (batch_size, targets_dim).
+        future_timestamps = timestamps_batch[:, None] + self.future_timestamp_shifts_for_prediction[None, :]
+        # The shape of targets and targets_nan_mask changes
+        # from (batch_size, targets_dim, num_nodes)
+        # to (batch_size, num_nodes, targets_dim)
+        # to (num_nodes * batch_size, targets_dim),
+        # and if targets_dim is 1, then the last dimension is squeezed.
+        targets = self.targets[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1).squeeze(1)
+        targets_nan_mask = self.targets_nan_mask[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)\
+            .squeeze(1)
+
+        # The shape of past_timestamps is (batch_size, targets_dim).
+        past_timestamps = timestamps_batch[:, None] + self.past_timestamp_shifts_for_features[None, :]
+        negative_mask = (past_timestamps < 0)
+        past_timestamps[negative_mask] = 0
+
+        # The shape of past targets and past_targets_nan_mask changes
+        # from (batch_size, past_targets_features_dim, num_nodes)
+        # to (batch_size, num_nodes, past_targets_features_dim)
+        # to (num_nodes * batch_size, past_targets_features_dim).
+        past_targets = self.targets[past_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)
+
+        if self.add_features_for_nan_targets:
+            past_targets_nan_mask = self.targets_nan_mask[past_timestamps]
+            past_targets_nan_mask[negative_mask] = 1
+            past_targets_nan_mask = past_targets_nan_mask.transpose(1, 2).flatten(start_dim=0, end_dim=1)
+        else:
+            past_targets_nan_mask = torch.empty(self.num_nodes * batch_size, 0)
+
+        temporal_features = self.temporal_features[timestamps_batch].squeeze(1).\
+            repeat_interleave(repeats=self.num_nodes, dim=0)
+        spatial_features = self.spatial_features.squeeze(0).repeat(batch_size, 1)
+        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch].flatten(start_dim=0, end_dim=1)
+        deepwalk_embeddings = self.deepwalk_embeddings.squeeze(0).repeat(batch_size, 1)
 
         features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
