@@ -7,7 +7,6 @@ dependencies:
   - tqdm
   - pyyaml
   - pydantic
-  - more-itertools
   - numpy
   - pandas
   - scikit-learn

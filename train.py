@@ -1,9 +1,9 @@
 import argparse
 from tqdm import tqdm
-from more_itertools import batched
 
 import torch
 from torch.nn import functional as F
+from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 
 from models import LinearModel, NeuralNetworkModel
@@ -129,16 +129,15 @@ def optimizer_step(loss, optimizer, scaler):
 
 
 @torch.no_grad()
-def evaluate(model, dataset, loss_fn, metric, amp=False):
+def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=False):
     val_preds = []
-    for val_timestamps_batch in batched(dataset.val_timestamps.tolist(), dataset.eval_batch_size):
+    for val_timestamps_batch in val_timestamps_loader:
         padded = False
         if len(val_timestamps_batch) != dataset.eval_batch_size:
             padding_size = dataset.eval_batch_size - len(val_timestamps_batch)
-            val_timestamps_batch = val_timestamps_batch + tuple(0 for _ in range(padding_size))
+            padding = torch.zeros(padding_size, dtype=torch.int32)
+            val_timestamps_batch = torch.cat([val_timestamps_batch, padding], axis=0)
             padded = True
-
-        val_timestamps_batch = torch.tensor(val_timestamps_batch)
 
         features, _, _ = dataset.get_timestamps_batch_data(val_timestamps_batch)
         with autocast(enabled=amp):
@@ -162,14 +161,13 @@ def evaluate(model, dataset, loss_fn, metric, amp=False):
     val_metric = val_loss.sqrt().item() if metric == 'RMSE' else val_loss.item()
 
     test_preds = []
-    for test_timestamps_batch in batched(dataset.test_timestamps.tolist(), dataset.eval_batch_size):
+    for test_timestamps_batch in test_timestamps_loader:
         padded = False
         if len(test_timestamps_batch) != dataset.eval_batch_size:
             padding_size = dataset.eval_batch_size - len(test_timestamps_batch)
-            test_timestamps_batch = test_timestamps_batch + tuple(0 for _ in range(padding_size))
+            padding = torch.zeros(padding_size, dtype=torch.int32)
+            test_timestamps_batch = torch.cat([test_timestamps_batch, padding], axis=0)
             padded = True
-
-        test_timestamps_batch = torch.tensor(test_timestamps_batch)
 
         features, _, _ = dataset.get_timestamps_batch_data(test_timestamps_batch)
         with autocast(enabled=amp):
@@ -233,6 +231,13 @@ def main():
                       eval_batch_size=args.eval_batch_size,
                       device=args.device)
 
+    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
+                                         drop_last=True, num_workers=1)
+    val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
+                                       drop_last=False, num_workers=1)
+    test_timestamps_loader = DataLoader(dataset.test_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
+                                        drop_last=False, num_workers=1)
+
     if args.metric == 'RMSE':
         loss_fn = F.mse_loss
     elif args.metric == 'MAE':
@@ -242,7 +247,7 @@ def main():
 
     logger = Logger(args)
 
-    num_steps = (len(dataset.train_timestamps) // args.train_batch_size) * args.num_epochs
+    num_steps = len(train_timestamps_loader) * args.num_epochs
 
     for run in range(1, args.num_runs + 1):
         if args.model == 'linear':
@@ -283,10 +288,11 @@ def main():
         optimizer_steps_done = 0
         loss = 0
         metrics = {}
+        train_timestamps_loader_iterator = iter(train_timestamps_loader)
         model.train()
         with tqdm(total=num_steps, desc=f'Run {run}') as progress_bar:
             for step in range(1, num_steps + 1):
-                cur_train_timestamps_batch = dataset.get_train_timestamps_batch()
+                cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
                 cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
                                              loss_fn=loss_fn, amp=args.amp)
                 loss += cur_step_loss
@@ -300,9 +306,12 @@ def main():
                     steps_till_optimizer_step = args.num_accumulation_steps
                     optimizer_steps_till_eval -= 1
 
-                if optimizer_steps_till_eval == 0 or dataset.end_of_epoch:
+                if (optimizer_steps_till_eval == 0 or
+                        train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)):
                     model.eval()
-                    metrics = evaluate(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, amp=args.amp)
+                    metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
+                                       test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn,
+                                       metric=args.metric, amp=args.amp)
                     logger.update_metrics(metrics=metrics, step=optimizer_steps_done)
                     model.train()
 
@@ -317,8 +326,8 @@ def main():
                     {'cur step metric': f'{cur_step_metric:.2f}', 'epoch': epoch}
                 )
 
-                if dataset.end_of_epoch:
-                    dataset.start_new_epoch()
+                if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
+                    train_timestamps_loader_iterator = iter(train_timestamps_loader)
                     epoch += 1
 
         logger.finish_run()

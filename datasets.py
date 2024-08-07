@@ -1,4 +1,3 @@
-import random
 import numpy as np
 import pandas as pd
 import torch
@@ -365,41 +364,6 @@ class Dataset:
         self.features_dim = (past_targets_features_dim + past_targets_features_dim * add_features_for_nan_targets +
                              temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
                              deepwalk_embeddings.shape[2])
-
-        self.cur_epoch_train_timestamps_left = train_timestamps.tolist()
-        random.seed(seed)
-        random.shuffle(self.cur_epoch_train_timestamps_left)
-        self.end_of_epoch = False
-
-    def get_train_timestamp(self):
-        try:
-            timestamp = self.cur_epoch_train_timestamps_left.pop()
-        except IndexError:
-            raise IndexError('There are no training timestamps left. Call start_new_epoch method '
-                             'of the dataset to start a new epoch.')
-
-        if not self.cur_epoch_train_timestamps_left:
-            self.end_of_epoch = True
-
-        return timestamp
-
-    def get_train_timestamps_batch(self):
-        if len(self.cur_epoch_train_timestamps_left) < self.train_batch_size:
-            raise IndexError('There are not enough training timestamps left. Call start_new_epoch method '
-                             'of the dataset to start a new epoch.')
-
-        timestamps_batch = torch.tensor(self.cur_epoch_train_timestamps_left[-self.train_batch_size:])
-        del self.cur_epoch_train_timestamps_left[-self.train_batch_size:]
-
-        if len(self.cur_epoch_train_timestamps_left) < self.train_batch_size:
-            self.end_of_epoch = True
-
-        return timestamps_batch
-
-    def start_new_epoch(self):
-        self.cur_epoch_train_timestamps_left = self.train_timestamps.tolist()
-        random.shuffle(self.cur_epoch_train_timestamps_left)
-        self.end_of_epoch = False
 
     def get_timestamp_data(self, timestamp):
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
