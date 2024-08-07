@@ -291,11 +291,11 @@ class Dataset:
         train_targets_nan_mask = targets_nan_mask[all_train_targets_timestamps[first_train_timestamp + 1:]]
         if only_predict_at_end_of_horizon or prediction_horizon == 1:
             # In this case max_prediction_shift is the only prediction shift.
-            # Transform train_targets_nan_mask to shape [len(train_timestamps) x num_nodes].
+            # Transform train_targets_nan_mask to shape [len(train_timestamps), num_nodes].
             train_targets_nan_mask = train_targets_nan_mask[max_prediction_shift - 1:]
             drop_train_timestamps_mask = train_targets_nan_mask.all(axis=1)
         else:
-            # Transform train_targets_nan_mask to shape [len(train_timestamps) x num_nodes x prediction_horizon].
+            # Transform train_targets_nan_mask to shape [len(train_timestamps), num_nodes, prediction_horizon].
             train_targets_nan_mask = torch.from_numpy(train_targets_nan_mask)
             train_targets_nan_mask = train_targets_nan_mask.unfold(dimension=0, size=prediction_horizon, step=1)
             train_targets_nan_mask = train_targets_nan_mask.numpy()
@@ -405,15 +405,15 @@ class Dataset:
     def get_timestamps_batch_features(self, timestamps_batch):
         batch_size = len(timestamps_batch)
 
-        # The shape of past_timestamps is (batch_size, targets_dim).
+        # The shape of past_timestamps is [batch_size, targets_dim].
         past_timestamps = timestamps_batch[:, None] + self.past_timestamp_shifts_for_features[None, :]
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
 
-        # The shape of past targets and past_targets_nan_mask changes
-        # from (batch_size, past_targets_features_dim, num_nodes)
-        # to (batch_size, num_nodes, past_targets_features_dim)
-        # to (num_nodes * batch_size, past_targets_features_dim).
+        # The shape of past targets and past_targets_nan_mask changes from
+        # [batch_size, past_targets_features_dim, num_nodes] to
+        # [batch_size, num_nodes, past_targets_features_dim] to
+        # [num_nodes * batch_size, past_targets_features_dim].
         past_targets = self.targets[past_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)
 
         if self.add_features_for_nan_targets:
@@ -435,12 +435,12 @@ class Dataset:
         return features.to(self.device)
 
     def get_timestamps_batch_targets(self, timestamps_batch):
-        # The shape of future_timestamps is (batch_size, targets_dim).
+        # The shape of future_timestamps is [batch_size, targets_dim].
         future_timestamps = timestamps_batch[:, None] + self.future_timestamp_shifts_for_prediction[None, :]
-        # The shape of targets and targets_nan_mask changes
-        # from (batch_size, targets_dim, num_nodes)
-        # to (batch_size, num_nodes, targets_dim)
-        # to (num_nodes * batch_size, targets_dim),
+        # The shape of targets and targets_nan_mask changes from
+        # [batch_size, targets_dim, num_nodes] to
+        # [batch_size, num_nodes, targets_dim] to
+        # [num_nodes * batch_size, targets_dim],
         # and if targets_dim is 1, then the last dimension is squeezed.
         targets = self.targets[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1).squeeze(1)
         targets_nan_mask = self.targets_nan_mask[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1) \
@@ -502,7 +502,7 @@ class Dataset:
             targets_nan_mask = targets_nan_mask[future_timestamp_shift - 1:]
         else:
             # If we predict targets for multiple timestamps, we need to go over the targets with a sliding window
-            # of length num_predictions and create a tensor of shape (num_timestamps, num_nodes, num_predictions).
+            # of length num_predictions and create a tensor of shape [num_timestamps, num_nodes, num_predictions].
             targets = targets.unfold(dimension=0, size=self.targets_dim, step=1)
             targets_nan_mask = targets_nan_mask.unfold(dimension=0, size=self.targets_dim, step=1)
 

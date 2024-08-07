@@ -60,7 +60,7 @@ def get_args():
     # Numerical features preprocessing.
     parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
                         choices=['mean', 'median', 'most_frequent'],
-                        help='Only used for datasets that have NaNs in static numerical features.')
+                        help='Only used for datasets that have NaNs in spatial or spatiotemporal numerical features.')
     parser.add_argument('--numerical_features_transform', type=str, default='quantile-transform-normal',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
