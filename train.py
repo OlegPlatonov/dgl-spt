@@ -300,7 +300,7 @@ def main():
                                                        val_timestamps_loader=val_timestamps_loader,
                                                        test_timestamps_loader=test_timestamps_loader,
                                                        loss_fn=loss_fn, metric=args.metric, amp=args.amp)
-                    logger.update_metrics(metrics=metrics, step=optimizer_steps_done)
+                    logger.update_metrics(metrics=metrics, step=optimizer_steps_done, epoch=epoch)
                     model.train()
 
                     if optimizer_steps_till_eval == 0:
