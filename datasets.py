@@ -441,9 +441,12 @@ class Dataset:
         if batch_size == self.train_batch_size:
             spatial_features = self.spatial_features_batched_train.squeeze(0)
             deepwalk_embeddings = self.deepwalk_embeddings_batched_train.squeeze(0)
-        else:
+        elif batch_size == self.eval_batch_size:
             spatial_features = self.spatial_features_batched_eval.squeeze(0)
             deepwalk_embeddings = self.deepwalk_embeddings_batched_eval.squeeze(0)
+        else:
+            spatial_features = self.spatial_features.to(self.device).squeeze(0).repeat(batch_size, 1)
+            deepwalk_embeddings = self.deepwalk_embeddings.to(self.device).squeeze(0).repeat(batch_size, 1)
 
         features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
