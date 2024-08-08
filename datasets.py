@@ -337,14 +337,14 @@ class Dataset:
         self.spatiotemporal_feature_names = spatiotemporal_feature_names
         self.deepwalk_embeddings = torch.from_numpy(deepwalk_embeddings)
 
-        self.spatial_features_batched_train = self.spatial_features.repeat(1, train_batch_size, 1)
-        self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.repeat(1, train_batch_size, 1)
+        self.spatial_features_batched_train = self.spatial_features.repeat(1, train_batch_size, 1).to(device)
+        self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.repeat(1, train_batch_size, 1).to(device)
         if eval_batch_size is None:
             self.spatial_features_batched_eval = self.spatial_features_batched_train
             self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings_batched_train
         else:
-            self.spatial_features_batched_eval = self.spatial_features.repeat(1, eval_batch_size, 1)
-            self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.repeat(1, eval_batch_size, 1)
+            self.spatial_features_batched_eval = self.spatial_features.repeat(1, eval_batch_size, 1).to(device)
+            self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.repeat(1, eval_batch_size, 1).to(device)
 
         # Might be used for applying numerical feature embeddings.
         self.num_features_mask = torch.from_numpy(num_features_mask)
@@ -380,31 +380,31 @@ class Dataset:
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
 
-        past_targets = self.targets[past_timestamps].T
+        past_targets = self.targets[past_timestamps].to(self.device).T
 
         if self.add_features_for_nan_targets:
-            past_targets_nan_mask = self.targets_nan_mask[past_timestamps]
+            past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device)
             past_targets_nan_mask[negative_mask] = 1
             past_targets_nan_mask = past_targets_nan_mask.T
         else:
-            past_targets_nan_mask = torch.empty(self.num_nodes, 0)
+            past_targets_nan_mask = torch.empty(self.num_nodes, 0, device=self.device)
 
-        temporal_features = self.temporal_features[timestamp].expand(self.num_nodes, -1)
-        spatial_features = self.spatial_features.squeeze(0)
-        spatiotemporal_features = self.spatiotemporal_features[timestamp]
-        deepwalk_embeddings = self.deepwalk_embeddings.squeeze(0)
+        temporal_features = self.temporal_features[timestamp].to(self.device).expand(self.num_nodes, -1)
+        spatial_features = self.spatial_features.to(self.device).squeeze(0)
+        spatiotemporal_features = self.spatiotemporal_features[timestamp].to(self.device)
+        deepwalk_embeddings = self.deepwalk_embeddings.to(self.device).squeeze(0)
 
         features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
 
-        return features.to(self.device)
+        return features
 
     def get_timestamp_targets(self, timestamp):
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
-        targets = self.targets[future_timestamps].T.squeeze(1)
-        targets_nan_mask = self.targets_nan_mask[future_timestamps].T.squeeze(1)
+        targets = self.targets[future_timestamps].to(self.device).T.squeeze(1)
+        targets_nan_mask = self.targets_nan_mask[future_timestamps].to(self.device).T.squeeze(1)
 
-        return targets.to(self.device), targets_nan_mask.to(self.device)
+        return targets, targets_nan_mask
 
     def get_timestamp_features_and_targets(self, timestamp):
         features = self.get_timestamp_features(timestamp)
@@ -424,18 +424,19 @@ class Dataset:
         # [batch_size, past_targets_features_dim, num_nodes] to
         # [batch_size, num_nodes, past_targets_features_dim] to
         # [num_nodes * batch_size, past_targets_features_dim].
-        past_targets = self.targets[past_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)
+        past_targets = self.targets[past_timestamps].to(self.device).transpose(1, 2).flatten(start_dim=0, end_dim=1)
 
         if self.add_features_for_nan_targets:
-            past_targets_nan_mask = self.targets_nan_mask[past_timestamps]
+            past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device)
             past_targets_nan_mask[negative_mask] = 1
             past_targets_nan_mask = past_targets_nan_mask.transpose(1, 2).flatten(start_dim=0, end_dim=1)
         else:
-            past_targets_nan_mask = torch.empty(self.num_nodes * batch_size, 0)
+            past_targets_nan_mask = torch.empty(self.num_nodes * batch_size, 0, device=self.device)
 
-        temporal_features = self.temporal_features[timestamps_batch].squeeze(1)\
+        temporal_features = self.temporal_features[timestamps_batch].to(self.device).squeeze(1)\
             .repeat_interleave(repeats=self.num_nodes, dim=0)
-        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch].flatten(start_dim=0, end_dim=1)
+        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch].to(self.device)\
+            .flatten(start_dim=0, end_dim=1)
 
         if batch_size == self.train_batch_size:
             spatial_features = self.spatial_features_batched_train.squeeze(0)
@@ -447,7 +448,7 @@ class Dataset:
         features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
 
-        return features.to(self.device)
+        return features
 
     def get_timestamps_batch_targets(self, timestamps_batch):
         # The shape of future_timestamps is [batch_size, targets_dim].
@@ -457,11 +458,12 @@ class Dataset:
         # [batch_size, num_nodes, targets_dim] to
         # [num_nodes * batch_size, targets_dim],
         # and if targets_dim is 1, then the last dimension is squeezed.
-        targets = self.targets[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1).squeeze(1)
-        targets_nan_mask = self.targets_nan_mask[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)\
+        targets = self.targets[future_timestamps].to(self.device).transpose(1, 2).flatten(start_dim=0, end_dim=1)\
             .squeeze(1)
+        targets_nan_mask = self.targets_nan_mask[future_timestamps].to(self.device).transpose(1, 2)\
+            .flatten(start_dim=0, end_dim=1).squeeze(1)
 
-        return targets.to(self.device), targets_nan_mask.to(self.device)
+        return targets, targets_nan_mask
 
     def get_timestamps_batch_features_and_targets(self, timestamps_batch):
         features = self.get_timestamps_batch_features(timestamps_batch)
