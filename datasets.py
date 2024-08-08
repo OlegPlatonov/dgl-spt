@@ -336,6 +336,16 @@ class Dataset:
         self.spatiotemporal_features = torch.from_numpy(spatiotemporal_features)
         self.spatiotemporal_feature_names = spatiotemporal_feature_names
         self.deepwalk_embeddings = torch.from_numpy(deepwalk_embeddings)
+
+        self.spatial_features_batched_train = self.spatial_features.repeat(1, train_batch_size, 1)
+        self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.repeat(1, train_batch_size, 1)
+        if eval_batch_size is None:
+            self.spatial_features_batched_eval = self.spatial_features_batched_train
+            self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings_batched_train
+        else:
+            self.spatial_features_batched_eval = self.spatial_features.repeat(1, eval_batch_size, 1)
+            self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.repeat(1, eval_batch_size, 1)
+
         # Might be used for applying numerical feature embeddings.
         self.num_features_mask = torch.from_numpy(num_features_mask)
 
@@ -423,11 +433,16 @@ class Dataset:
         else:
             past_targets_nan_mask = torch.empty(self.num_nodes * batch_size, 0)
 
-        temporal_features = self.temporal_features[timestamps_batch].squeeze(1). \
-            repeat_interleave(repeats=self.num_nodes, dim=0)
-        spatial_features = self.spatial_features.squeeze(0).repeat(batch_size, 1)
+        temporal_features = self.temporal_features[timestamps_batch].squeeze(1)\
+            .repeat_interleave(repeats=self.num_nodes, dim=0)
         spatiotemporal_features = self.spatiotemporal_features[timestamps_batch].flatten(start_dim=0, end_dim=1)
-        deepwalk_embeddings = self.deepwalk_embeddings.squeeze(0).repeat(batch_size, 1)
+
+        if batch_size == self.train_batch_size:
+            spatial_features = self.spatial_features_batched_train.squeeze(0)
+            deepwalk_embeddings = self.deepwalk_embeddings_batched_train.squeeze(0)
+        else:
+            spatial_features = self.spatial_features_batched_eval.squeeze(0)
+            deepwalk_embeddings = self.deepwalk_embeddings_batched_eval.squeeze(0)
 
         features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
@@ -443,7 +458,7 @@ class Dataset:
         # [num_nodes * batch_size, targets_dim],
         # and if targets_dim is 1, then the last dimension is squeezed.
         targets = self.targets[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1).squeeze(1)
-        targets_nan_mask = self.targets_nan_mask[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1) \
+        targets_nan_mask = self.targets_nan_mask[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)\
             .squeeze(1)
 
         return targets.to(self.device), targets_nan_mask.to(self.device)
