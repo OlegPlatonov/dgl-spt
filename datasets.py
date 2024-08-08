@@ -202,7 +202,7 @@ class Dataset:
             graph = dgl.to_bidirected(graph)
 
         train_batched_graph = dgl.batch([graph for _ in range(train_batch_size)])
-        if eval_batch_size is not None:
+        if eval_batch_size is not None and eval_batch_size != train_batch_size:
             eval_batched_graph = dgl.batch([graph for _ in range(eval_batch_size)])
 
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO PAST TARGETS THAT WILL BE USED AS FEATURES
@@ -339,7 +339,7 @@ class Dataset:
 
         self.spatial_features_batched_train = self.spatial_features.repeat(1, train_batch_size, 1).to(device)
         self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.repeat(1, train_batch_size, 1).to(device)
-        if eval_batch_size is None:
+        if eval_batch_size is None or eval_batch_size == train_batch_size:
             self.spatial_features_batched_eval = self.spatial_features_batched_train
             self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings_batched_train
         else:
@@ -361,7 +361,10 @@ class Dataset:
 
         self.graph = graph
         self.train_batched_graph = train_batched_graph.to(device)
-        self.eval_batched_graph = self.train_batched_graph if eval_batch_size is None else eval_batched_graph.to(device)
+        if eval_batch_size is None or eval_batch_size == train_batch_size:
+            self.eval_batched_graph = self.train_batched_graph
+        else:
+            self.eval_batched_graph = eval_batched_graph.to(device)
 
         self.future_timestamp_shifts_for_prediction = torch.from_numpy(future_timestamp_shifts_for_prediction)
         self.past_timestamp_shifts_for_features = torch.from_numpy(past_timestamp_shifts_for_features)
