@@ -52,13 +52,24 @@ class Dataset:
         targets = data['targets'].astype(np.float32)
 
         targets_nan_mask = np.isnan(targets)
+
+        # Impute NaNs in targets.
         if imputation_startegy_for_nan_targets == 'prev':
             targets_df = pd.DataFrame(targets)
             targets_df.ffill(axis=0, inplace=True)
+
+            if (np.isnan(targets_df.values[all_val_targets_timestamps]).any() or
+                    np.isnan(targets_df.values[all_test_targets_timestamps]).any()):
+                raise RuntimeError('There are NaN values left in val or test targets after ffill. '
+                                   'Applying bfill to them will lead to future information leakage in evaluation. '
+                                   'Modify the dataset or set imputation_startegy_for_nan_targets argument to "zero".')
+
             targets_df.bfill(axis=0, inplace=True)
             targets = targets_df.values
+
         elif imputation_startegy_for_nan_targets == 'zero':
             targets[targets_nan_mask] = 0
+
         else:
             raise ValueError(f'Unsupported value for imputation_strategy_for_nan_targets: '
                              f'{imputation_startegy_for_nan_targets}.')
