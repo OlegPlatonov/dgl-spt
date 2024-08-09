@@ -492,14 +492,19 @@ class Dataset:
         device = preds.device
 
         if self.transform_targets_for_each_node_separately:
-            preds = preds.transpose(1, 2)
-            shape = preds.shape
-            preds = preds.reshape(-1, self.num_nodes)
-            preds = preds.cpu().numpy()
-            preds_orig = self.targets_transform.inverse_transform(preds)
-            preds_orig = torch.tensor(preds_orig, device=device)
-            preds_orig = preds_orig.reshape(*shape)
-            preds_orig = preds_orig.transpose(1, 2)
+            if self.targets_dim == 1:
+                preds = preds.cpu().numpy()
+                preds_orig = self.targets_transform.inverse_transform(preds)
+                preds_orig = torch.tensor(preds_orig, device=device)
+            else:
+                preds = preds.transpose(1, 2)
+                shape = preds.shape
+                preds = preds.reshape(-1, self.num_nodes)
+                preds = preds.cpu().numpy()
+                preds_orig = self.targets_transform.inverse_transform(preds)
+                preds_orig = torch.tensor(preds_orig, device=device)
+                preds_orig = preds_orig.reshape(*shape)
+                preds_orig = preds_orig.transpose(1, 2)
         else:
             shape = preds.shape
             preds = preds.reshape(-1, 1)
