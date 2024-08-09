@@ -39,7 +39,7 @@ class FeedForwardModule(nn.Module):
 class GraphAggregationAndFeedForwardModule(nn.Module):
     def __init__(self, graph_aggregation_module, dim, dropout, **kwargs):
         super().__init__()
-        self.graph_aggregation_module = graph_aggregation_module(dim=dim, **kwargs)
+        self.graph_aggregation_module = graph_aggregation_module(dim=dim, dropout=dropout, **kwargs)
         self.feed_forward_module = FeedForwardModule(dim=dim, num_inputs=2, dropout=dropout)
 
     def forward(self, graph, x):
