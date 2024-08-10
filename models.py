@@ -62,7 +62,7 @@ class NeuralNetworkModel(nn.Module):
         if use_plr:
             num_features_dim = num_features_mask.sum()
             input_dim = input_dim - num_features_dim + num_features_dim * plr_embedding_dim
-            self.plr_embeddings = PLREmbeddings(num_features=num_features_dim, num_frequencies=plr_num_frequencies,
+            self.plr_embeddings = PLREmbeddings(features_dim=num_features_dim, num_frequencies=plr_num_frequencies,
                                                 frequency_scale=plr_frequency_scale, embedding_dim=plr_embedding_dim,
                                                 lite=use_plr_lite)
             self.register_buffer('num_features_mask', num_features_mask)
