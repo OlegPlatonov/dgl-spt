@@ -188,12 +188,12 @@ class Dataset:
                         feature = cat_features_encoded[:, :, start_idx:start_idx + num_categories]
                         features_new.append(feature)
                         feature_names_new += one_hot_encoder_output_feature_names[start_idx:start_idx + num_categories]
-                        num_features_mask_new += [0 for _ in range(num_categories)]
+                        num_features_mask_new += [False for _ in range(num_categories)]
                         start_idx += num_categories
 
                 features = np.concatenate(features_new, axis=2)
                 feature_names = feature_names_new
-                num_features_mask = np.array(num_features_mask_new)
+                num_features_mask = np.array(num_features_mask_new, dtype=bool)
 
             features_groups[features_group_idx] = features
             feature_names_groups[features_group_idx] = feature_names
@@ -262,7 +262,7 @@ class Dataset:
         extension_len = past_targets_features_dim if not add_features_for_nan_targets else past_targets_features_dim * 2
         num_features_mask_extentsion = np.zeros(extension_len, dtype=bool)
         if plr_apply_to_past_targets:
-            num_features_mask_extentsion[:past_targets_features_dim] = 1
+            num_features_mask_extentsion[:past_targets_features_dim] = True
 
         num_features_mask = np.concatenate([num_features_mask_extentsion, num_features_mask], axis=0)
 
