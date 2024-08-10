@@ -259,11 +259,16 @@ class Dataset:
             past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
 
         past_targets_features_dim = len(past_timestamp_shifts_for_features)
-        extension_len = past_targets_features_dim if not add_features_for_nan_targets else past_targets_features_dim * 2
-        num_features_mask_extentsion = np.zeros(extension_len, dtype=bool)
-        if plr_apply_to_past_targets:
-            num_features_mask_extentsion[:past_targets_features_dim] = True
+        past_targets_nan_mask_features_dim = past_targets_features_dim * add_features_for_nan_targets
+        features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
+                        temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
+                        deepwalk_embeddings.shape[2])
 
+        past_targets_mask = np.zeros(features_dim, dtype=bool)
+        past_targets_mask[:past_targets_features_dim] = True
+
+        num_features_mask_extentsion = np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim,
+                                                dtype=bool)
         num_features_mask = np.concatenate([num_features_mask_extentsion, num_features_mask], axis=0)
 
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO FUTURE TARGETS THAT WILL BE PREDICTED
@@ -359,6 +364,7 @@ class Dataset:
 
         # Might be used for applying numerical feature embeddings.
         self.num_features_mask = torch.from_numpy(num_features_mask)
+        self.past_targets_mask = torch.from_numpy(past_targets_mask)
 
         if initialize_learnable_node_embeddings_with_deepwalk:
             self.deepwalk_embeddings_for_initializing_learnable_embeddings = torch.from_numpy(
@@ -385,9 +391,7 @@ class Dataset:
 
         self.targets_dim = 1 if only_predict_at_end_of_horizon else prediction_horizon
         self.past_targets_features_dim = past_targets_features_dim
-        self.features_dim = (past_targets_features_dim + past_targets_features_dim * add_features_for_nan_targets +
-                             temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
-                             deepwalk_embeddings.shape[2])
+        self.features_dim = features_dim
 
     def get_timestamp_features(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features

@@ -67,15 +67,32 @@ def get_args():
                                  'quantile-transform-uniform'])
 
     # PLR embeddings for numerical features.
-    parser.add_argument('--plr', default=False, action='store_true', help='Use PLR embeddings for numerical features.')
-    parser.add_argument('--plr_apply_to_past_targets', default=False, action='store_true',
-                        help='Only used if plr is True.')
-    parser.add_argument('--plr_num_frequencies', type=int, default=48, help='Only used if plr is True.')
-    parser.add_argument('--plr_frequency_scale', type=float, default=0.01, help='Only used if plr is True.')
-    parser.add_argument('--plr_embedding_dim', type=int, default=16, help='Only used if plr is True.')
-    parser.add_argument('--plr_shared_linear', default=False, action='store_true', help='Only used if plr is True.')
-    parser.add_argument('--plr_shared_frequencies', default=False, action='store_true',
-                        help='Only used if plr is True.')
+    parser.add_argument('--use_plr_for_num_features', default=False, action='store_true',
+                        help='Apply PLR embeddings to numerical features.')
+    parser.add_argument('--plr_num_features_num_frequencies', type=int, default=48,
+                        help='Only used if plr_num_features is True.')
+    parser.add_argument('--plr_num_features_frequency_scale', type=float, default=0.01,
+                        help='Only used if plr_num_features is True.')
+    parser.add_argument('--plr_num_features_embedding_dim', type=int, default=16,
+                        help='Only used if plr_num_features is True.')
+    parser.add_argument('--plr_num_features_shared_linear', default=False, action='store_true',
+                        help='Only used if plr_num_features is True.')
+    parser.add_argument('--plr_num_features_shared_frequencies', default=False, action='store_true',
+                        help='Only used if plr_num_features is True.')
+
+    # PLR embeddings for past targets.
+    parser.add_argument('--use_plr_for_past_targets', default=False, action='store_true',
+                        help='Apply PLR embeddings to past targets.')
+    parser.add_argument('--plr_past_targets_num_frequencies', type=int, default=48,
+                        help='Only used if plr_past_targets is True.')
+    parser.add_argument('--plr_past_targets_frequency_scale', type=float, default=0.01,
+                        help='Only used if plr_past_targets is True.')
+    parser.add_argument('--plr_past_targets_embedding_dim', type=int, default=16,
+                        help='Only used if plr_past_targets is True.')
+    parser.add_argument('--plr_past_targets_shared_linear', default=False, action='store_true',
+                        help='Only used if plr_past_targets is True.')
+    parser.add_argument('--plr_past_targets_shared_frequencies', default=False, action='store_true',
+                        help='Only used if plr_past_targets is True.')
 
     # Model architecture.
     parser.add_argument('--model', type=str, default='ResNet-MeanAggr',
@@ -216,7 +233,6 @@ def main():
                           args.initialize_learnable_node_embeddings_with_deepwalk,
                       imputation_strategy_for_num_features=args.imputation_strategy_for_numerical_features,
                       num_features_transform=args.numerical_features_transform,
-                      plr_apply_to_past_targets=args.plr_apply_to_past_targets,
                       train_batch_size=args.train_batch_size,
                       eval_batch_size=args.eval_batch_size,
                       device=args.device)
@@ -258,13 +274,20 @@ def main():
                                            args.initialize_learnable_node_embeddings_with_deepwalk,
                                        deepwalk_node_embeddings=\
                                            dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
-                                       use_plr=args.plr,
+                                       use_plr_for_num_features=args.use_plr_for_num_features,
                                        num_features_mask=dataset.num_features_mask,
-                                       plr_num_frequencies=args.plr_num_frequencies,
-                                       plr_frequency_scale=args.plr_frequency_scale,
-                                       plr_embedding_dim=args.plr_embedding_dim,
-                                       plr_shared_linear=args.plr_shared_linear,
-                                       plr_shared_frequencies=args.plr_shared_frequencies)
+                                       plr_num_features_num_frequencies=args.plr_num_features_num_frequencies,
+                                       plr_num_features_frequency_scale=args.plr_num_features_frequency_scale,
+                                       plr_num_features_embedding_dim=args.plr_num_features_embedding_dim,
+                                       plr_num_features_shared_linear=args.plr_num_features_shared_linear,
+                                       plr_num_features_shared_frequencies=args.plr_num_features_shared_frequencies,
+                                       use_plr_for_past_targets=args.use_plr_for_past_targets,
+                                       past_targets_mask=dataset.past_targets_mask,
+                                       plr_past_targets_num_frequencies=args.plr_past_targets_num_frequencies,
+                                       plr_past_targets_frequency_scale=args.plr_past_targets_frequency_scale,
+                                       plr_past_targets_embedding_dim=args.plr_past_targets_embedding_dim,
+                                       plr_past_targets_shared_linear=args.plr_past_targets_shared_linear,
+                                       plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies)
 
         model.to(args.device)
 

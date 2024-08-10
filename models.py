@@ -33,8 +33,12 @@ class NeuralNetworkModel(nn.Module):
     def __init__(self, model_name, num_layers, features_dim, hidden_dim, output_dim, num_heads, normalization, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
-                 use_plr, num_features_mask, plr_num_frequencies, plr_frequency_scale, plr_embedding_dim,
-                 plr_shared_linear, plr_shared_frequencies):
+                 use_plr_for_num_features, num_features_mask, plr_num_features_num_frequencies,
+                 plr_num_features_frequency_scale, plr_num_features_embedding_dim,
+                 plr_num_features_shared_linear, plr_num_features_shared_frequencies,
+                 use_plr_for_past_targets, past_targets_mask, plr_past_targets_num_frequencies,
+                 plr_past_targets_frequency_scale, plr_past_targets_embedding_dim,
+                 plr_past_targets_shared_linear, plr_past_targets_shared_frequencies):
         super().__init__()
 
         module = MODULES[model_name]
@@ -59,15 +63,38 @@ class NeuralNetworkModel(nn.Module):
                 self.node_embeddings = nn.Embedding(num_embeddings=num_nodes,
                                                     embedding_dim=learnable_node_embeddings_dim)
 
-        self.use_plr = use_plr
-        if use_plr:
+        self.use_plr_for_num_features = use_plr_for_num_features
+        if use_plr_for_num_features:
             num_features_dim = num_features_mask.sum()
-            input_dim = input_dim - num_features_dim + num_features_dim * plr_embedding_dim
-            self.plr_embeddings = PLREmbeddings(features_dim=num_features_dim, num_frequencies=plr_num_frequencies,
-                                                frequency_scale=plr_frequency_scale, embedding_dim=plr_embedding_dim,
-                                                shared_linear=plr_shared_linear,
-                                                shared_frequencies=plr_shared_frequencies)
+            input_dim = input_dim - num_features_dim + num_features_dim * plr_num_features_embedding_dim
+            self.plr_embeddings_num_features = PLREmbeddings(features_dim=num_features_dim,
+                                                             num_frequencies=plr_num_features_num_frequencies,
+                                                             frequency_scale=plr_num_features_frequency_scale,
+                                                             embedding_dim=plr_num_features_embedding_dim,
+                                                             shared_linear=plr_num_features_shared_linear,
+                                                             shared_frequencies=plr_num_features_shared_frequencies)
+
             self.register_buffer('num_features_mask', num_features_mask)
+
+        self.use_plr_for_past_targtes = use_plr_for_past_targets
+        if use_plr_for_past_targets:
+            past_targets_dim = past_targets_mask.sum()
+            input_dim = input_dim - past_targets_dim + past_targets_dim * plr_past_targets_embedding_dim
+            self.plr_embeddings_past_targets = PLREmbeddings(features_dim=past_targets_dim,
+                                                             num_frequencies=plr_past_targets_num_frequencies,
+                                                             frequency_scale=plr_past_targets_frequency_scale,
+                                                             embedding_dim=plr_past_targets_embedding_dim,
+                                                             shared_linear=plr_past_targets_shared_linear,
+                                                             shared_frequencies=plr_past_targets_shared_frequencies)
+
+            if use_plr_for_num_features:
+                past_targets_mask = past_targets_mask[~num_features_mask]
+                num_features_dim = num_features_mask.sum()
+                embedded_num_features_dim = num_features_dim * plr_num_features_embedding_dim
+                embedded_num_features_shift = torch.zeros(embedded_num_features_dim, dtype=bool)
+                past_targets_mask = torch.cat([embedded_num_features_shift, past_targets_mask], axis=0)
+
+            self.register_buffer('past_targets_mask', past_targets_mask)
 
         self.input_linear = nn.Linear(in_features=input_dim, out_features=hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
@@ -87,10 +114,15 @@ class NeuralNetworkModel(nn.Module):
         self.output_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
 
     def forward(self, graph, x):
-        if self.use_plr:
+        if self.use_plr_for_num_features:
             x_num = x[:, self.num_features_mask]
-            x_num_embedded = self.plr_embeddings(x_num).flatten(start_dim=1)
+            x_num_embedded = self.plr_embeddings_num_features(x_num).flatten(start_dim=1)
             x = torch.cat([x_num_embedded, x[:, ~self.num_features_mask]], axis=1)
+
+        if self.use_plr_for_past_targtes:
+            x_targets = x[:, self.past_targets_mask]
+            x_targets_embedded = self.plr_embeddings_past_targets(x_targets).flatten(start_dim=1)
+            x = torch.cat([x_targets_embedded, x[:, ~self.past_targets_mask]], axis=1)
 
         if self.use_learnable_node_embeddings:
             node_indices = torch.arange(graph.batch_num_nodes()[0], dtype=torch.int32,
