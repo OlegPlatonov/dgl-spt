@@ -68,12 +68,14 @@ def get_args():
 
     # PLR embeddings for numerical features.
     parser.add_argument('--plr', default=False, action='store_true', help='Use PLR embeddings for numerical features.')
-    parser.add_argument('--plr_apply_to_past_targets', default=False, action='store_true')
-    parser.add_argument('--plr_num_frequencies', type=int, default=48, help='Only used if plr is True')
-    parser.add_argument('--plr_frequency_scale', type=float, default=0.01, help='Only used if plr is True')
-    parser.add_argument('--plr_embedding_dim', type=int, default=16, help='Only used if plr is True')
-    parser.add_argument('--plr_shared_linear', default=False, action='store_true', help='Only used if plr is True')
-    parser.add_argument('--plr_shared_frequencies', default=False, action='store_true', help='Only used if plr is True')
+    parser.add_argument('--plr_apply_to_past_targets', default=False, action='store_true',
+                        help='Only used if plr is True.')
+    parser.add_argument('--plr_num_frequencies', type=int, default=48, help='Only used if plr is True.')
+    parser.add_argument('--plr_frequency_scale', type=float, default=0.01, help='Only used if plr is True.')
+    parser.add_argument('--plr_embedding_dim', type=int, default=16, help='Only used if plr is True.')
+    parser.add_argument('--plr_shared_linear', default=False, action='store_true', help='Only used if plr is True.')
+    parser.add_argument('--plr_shared_frequencies', default=False, action='store_true',
+                        help='Only used if plr is True.')
 
     # Model architecture.
     parser.add_argument('--model', type=str, default='ResNet-MeanAggr',
