@@ -7,9 +7,12 @@ from torch import nn
 
 
 class PeriodicEmbeddings(nn.Module):
-    def __init__(self, features_dim, num_frequencies, frequency_scale):
+    def __init__(self, features_dim, num_frequencies, frequency_scale, shared_frequencies=False):
         super().__init__()
-        self.frequencies = nn.Parameter(torch.randn(features_dim, num_frequencies) * frequency_scale)
+        if shared_frequencies:
+            self.frequencies = nn.Parameter(torch.randn(1, num_frequencies) * frequency_scale)
+        else:
+            self.frequencies = nn.Parameter(torch.randn(features_dim, num_frequencies) * frequency_scale)
 
     def forward(self, x):
         x = 2 * torch.pi * self.frequencies[None, ...] * x[..., None]
@@ -35,17 +38,18 @@ class NLinear(nn.Module):
 
 
 class PLREmbeddings(nn.Module):
-    def __init__(self, features_dim, num_frequencies, frequency_scale, embedding_dim, lite=False):
+    def __init__(self, features_dim, num_frequencies, frequency_scale, embedding_dim, shared_linear=False,
+                 shared_frequencies=False):
         super().__init__()
 
-        if lite:
+        if shared_linear:
             linear_layer = nn.Linear(in_features=num_frequencies * 2, out_features=embedding_dim)
         else:
             linear_layer = NLinear(features_dim=features_dim, input_dim=num_frequencies * 2, output_dim=embedding_dim)
 
         self.plr_embeddings = nn.Sequential(
             PeriodicEmbeddings(features_dim=features_dim, num_frequencies=num_frequencies,
-                               frequency_scale=frequency_scale),
+                               frequency_scale=frequency_scale, shared_frequencies=shared_frequencies),
             linear_layer,
             nn.ReLU()
         )

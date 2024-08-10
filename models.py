@@ -33,7 +33,8 @@ class NeuralNetworkModel(nn.Module):
     def __init__(self, model_name, num_layers, features_dim, hidden_dim, output_dim, num_heads, normalization, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
-                 use_plr, num_features_mask, plr_num_frequencies, plr_frequency_scale, plr_embedding_dim, use_plr_lite):
+                 use_plr, num_features_mask, plr_num_frequencies, plr_frequency_scale, plr_embedding_dim,
+                 plr_shared_linear, plr_shared_frequencies):
         super().__init__()
 
         module = MODULES[model_name]
@@ -64,7 +65,8 @@ class NeuralNetworkModel(nn.Module):
             input_dim = input_dim - num_features_dim + num_features_dim * plr_embedding_dim
             self.plr_embeddings = PLREmbeddings(features_dim=num_features_dim, num_frequencies=plr_num_frequencies,
                                                 frequency_scale=plr_frequency_scale, embedding_dim=plr_embedding_dim,
-                                                lite=use_plr_lite)
+                                                shared_linear=plr_shared_linear,
+                                                shared_frequencies=plr_shared_frequencies)
             self.register_buffer('num_features_mask', num_features_mask)
 
         self.input_linear = nn.Linear(in_features=input_dim, out_features=hidden_dim)

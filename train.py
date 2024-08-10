@@ -72,7 +72,8 @@ def get_args():
     parser.add_argument('--plr_num_frequencies', type=int, default=48, help='Only used if plr is True')
     parser.add_argument('--plr_frequency_scale', type=float, default=0.01, help='Only used if plr is True')
     parser.add_argument('--plr_embedding_dim', type=int, default=16, help='Only used if plr is True')
-    parser.add_argument('--plr_lite', default=False, action='store_true', help='Only used if plr is True')
+    parser.add_argument('--plr_shared_linear', default=False, action='store_true', help='Only used if plr is True')
+    parser.add_argument('--plr_shared_frequencies', default=False, action='store_true', help='Only used if plr is True')
 
     # Model architecture.
     parser.add_argument('--model', type=str, default='ResNet-MeanAggr',
@@ -260,7 +261,8 @@ def main():
                                        plr_num_frequencies=args.plr_num_frequencies,
                                        plr_frequency_scale=args.plr_frequency_scale,
                                        plr_embedding_dim=args.plr_embedding_dim,
-                                       use_plr_lite=args.plr_lite)
+                                       plr_shared_linear=args.plr_shared_linear,
+                                       plr_shared_frequencies=args.plr_shared_frequencies)
 
         model.to(args.device)
 
