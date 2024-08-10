@@ -29,7 +29,7 @@ class Dataset:
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
-                 plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None, device='cpu', seed=0):
+                 plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None, device='cpu'):
         print('Preparing data...')
         data = np.load(f'data/{name.replace("-", "_")}.npz', allow_pickle=True)
 
@@ -142,7 +142,7 @@ class Dataset:
                 num_features_orig_shape = num_features.shape
                 num_features = num_features.reshape(-1, num_features.shape[2])
 
-                if np.isnan(features[:, :, num_features_mask]).sum() > 0:
+                if np.isnan(features[:, :, num_features_mask]).any():
                     imputer = SimpleImputer(strategy=imputation_strategy_for_num_features).fit(num_features)
                     num_features = imputer.transform(num_features)
 
