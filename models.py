@@ -14,7 +14,7 @@ MODULES = {
 
 
 NORMALIZATION = {
-    'None': nn.Identity,
+    'none': nn.Identity,
     'LayerNorm': nn.LayerNorm,
     'BatchNorm': nn.BatchNorm1d
 }
