@@ -6,7 +6,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 
-from models import LinearModel, NeuralNetworkModel
+from models import ModelRegistry
 from datasets import Dataset
 from utils import Logger, get_parameter_groups
 
@@ -21,11 +21,11 @@ def get_args():
                                  'city-roads-spt-L', 'weatherbecnh-era5', 'weatherbecnh-era5-usa'])
     parser.add_argument('--metric', type=str, default='RMSE', choices=['RMSE', 'MAE'])
 
-    # Select future timestamps targets from which will be used for prediction.
+    # Select future timestamps targets from which will be predicted by the model.
     parser.add_argument('--prediction_horizon', type=int, default=12)
     parser.add_argument('--only_predict_at_end_of_horizon', default=False, action='store_true')
 
-    # Select past timestamps targets from which will be used as features.
+    # Select past timestamps targets from which will be used as node features and passed as input to the model.
     parser.add_argument('--direct_lookback_num_steps', type=int, default=48)
     parser.add_argument('--seasonal_lookback_periods', nargs='+', type=int, default=None,
                         help='Should have the same number of values as seasonal_lookback_num_steps argument.')
@@ -48,14 +48,22 @@ def get_args():
     parser.add_argument('--imputation_startegy_for_nan_targets', type=str, default='prev', choices=['prev', 'zero'])
     parser.add_argument('--add_features_for_nan_targets', default=False, action='store_true')
 
-    # Select node features.
+    # Drop unwanted node features.
     parser.add_argument('--do_not_use_temporal_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatial_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatiotemporal_features', default=False, action='store_true')
+
+    # Add additional node features.
     parser.add_argument('--use_deepwalk_node_embeddings', default=False, action='store_true')
-    parser.add_argument('--use_learnable_node_embeddings', default=False, action='store_true')
-    parser.add_argument('--learnable_node_embeddings_dim', type=int, default=128)
-    parser.add_argument('--initialize_learnable_node_embeddings_with_deepwalk', default=False, action='store_true')
+    parser.add_argument('--use_learnable_node_embeddings', default=False, action='store_true',
+                        help='Not used if model_class is Linear.')
+    parser.add_argument('--learnable_node_embeddings_dim', type=int, default=128,
+                        help='Only used if use_learnable_node_embeddings is True.')
+    parser.add_argument('--initialize_learnable_node_embeddings_with_deepwalk', default=False, action='store_true',
+                        help='Initializes learnable node embeddings with DeepWalk node embeddings. '
+                             'This can be used instead of or in addition to using fixed (non-trainable) DeepWalk node '
+                             'embeddings (which are controlled by use_deepwalk_node_embeddings arguments). '
+                             'Only used if use_learnable_node_embeddings is True.')
 
     # Numerical features preprocessing.
     parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
@@ -66,12 +74,12 @@ def get_args():
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
 
-    # PLR embeddings for numerical features.
+    # PLR embeddings for numerical features. Not used if model_class is Linear.
     parser.add_argument('--use_plr_for_num_features', default=False, action='store_true',
                         help='Apply PLR embeddings to numerical features.')
-    parser.add_argument('--plr_num_features_num_frequencies', type=int, default=48,
+    parser.add_argument('--plr_num_features_frequencies_dim', type=int, default=48,
                         help='Only used if plr_num_features is True.')
-    parser.add_argument('--plr_num_features_frequency_scale', type=float, default=0.01,
+    parser.add_argument('--plr_num_features_frequencies_scale', type=float, default=0.01,
                         help='Only used if plr_num_features is True.')
     parser.add_argument('--plr_num_features_embedding_dim', type=int, default=16,
                         help='Only used if plr_num_features is True.')
@@ -80,12 +88,12 @@ def get_args():
     parser.add_argument('--plr_num_features_shared_frequencies', default=False, action='store_true',
                         help='Only used if plr_num_features is True.')
 
-    # PLR embeddings for past targets.
+    # PLR embeddings for past targets. Not used if model_class is Linear.
     parser.add_argument('--use_plr_for_past_targets', default=False, action='store_true',
                         help='Apply PLR embeddings to past targets.')
-    parser.add_argument('--plr_past_targets_num_frequencies', type=int, default=48,
+    parser.add_argument('--plr_past_targets_frequencies_dim', type=int, default=48,
                         help='Only used if plr_past_targets is True.')
-    parser.add_argument('--plr_past_targets_frequency_scale', type=float, default=0.01,
+    parser.add_argument('--plr_past_targets_frequencies_scale', type=float, default=0.01,
                         help='Only used if plr_past_targets is True.')
     parser.add_argument('--plr_past_targets_embedding_dim', type=int, default=16,
                         help='Only used if plr_past_targets is True.')
@@ -94,16 +102,51 @@ def get_args():
     parser.add_argument('--plr_past_targets_shared_frequencies', default=False, action='store_true',
                         help='Only used if plr_past_targets is True.')
 
-    # Model architecture.
-    parser.add_argument('--model', type=str, default='ResNet-MeanAggr',
-                        choices=['linear', 'ResNet', 'ResNet-MeanAggr', 'ResNet-AttnGATAggr', 'ResNet-AttnTrfAggr'])
-    parser.add_argument('--num_layers', type=int, default=2)
-    parser.add_argument('--hidden_dim', type=int, default=512)
-    parser.add_argument('--num_heads', type=int, default=4)
-    parser.add_argument('--normalization', type=str, default='LayerNorm', choices=['none', 'LayerNorm', 'BatchNorm'])
+    # Model type selection.
+    parser.add_argument('--model_class', type=str, default='SignleInputGNN',
+                        choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN'])
+    parser.add_argument('--neighborhood_aggregation', type=str, default='Mean',
+                        choices=['MeanAggr', 'MaxAggr', 'AttnGATAggr', 'AttnTrfAggr'],
+                        help='Graph neighborhood aggregation (aka message passing) function for GNNs. '
+                             'Only used if model_class is SingleInputGNN or SequenceInputGNN.')
+    parser.add_argument('--sequence_encoder', type=str, default='RNN',
+                        choices=['RNN', 'Transformer'],
+                        help='Timestamp sequence encoder applied before graph neighborhood aggregation. '
+                             'Only used if model_class is SequenceInputGNN.')
+    parser.add_argument('--normalization', type=str, default='LayerNorm',
+                        choices=['none', 'LayerNorm', 'BatchNorm'],
+                        help='Normalization applied in the beginning of each residual block. '
+                             'Not used if model_class is LinearModel.')
+
+    # Model architecture hyperparameters.
+    parser.add_argument('--num_residual_blocks', type=int, default=2,
+                        help='Number of residual blocks, where each residual block consists of the following sequence '
+                             'of layers: normalization, sequence encoder (if model_class is SequenceInputGNN), '
+                             'graph neighborhood aggregation (if model_class is SingleInputGNN or SequenceInputGNN), '
+                             'two-layer MLP. '
+                             'Not used if model_class is LinearModel.')
+    parser.add_argument('--hidden_dim', type=int, default=512,
+                        help='Not used if model_class is LinearModel.')
+    parser.add_argument('--neighborhood_aggr_attn_num_heads', type=int, default=4,
+                        help='Number of attention heads for attention-based graph neighborhood aggregation. '
+                             'Only used if model_class is SingleInputGNN or SequenceInputGNN and '
+                             'neighborhood_aggregation is AttnGAT or AttnTrf.')
+    parser.add_argument('--seq_encoder_num_layers', type=int, default=4,
+                        help='Number of layers in sequence encoder used in each residual block of the model. '
+                             'Only used if model_class is SequenceInputGNN.')
+    parser.add_argument('--seq_encoder_rnn_type', type=str, default='LSTM', choices=['LSTM', 'GRU'],
+                        help='RNN type used as sequence encoder. '
+                             'Only used if model_class is SequenceInputGNN and sequence_encoder is RNN.')
+    parser.add_argument('--seq_encoder_attn_num_heads', type=int, default=8,
+                        help='Number of attention heads for attention-based sequence encoders. '
+                             'Only used if model_class is SequenceInputGNN and sequence_encoder is Transformer.')
+    parser.add_argument('--seq_encoder_bidir_attn', default=False, action='store_true',
+                        help='Use bidirectional attention instead of unidirectional (aka causal) attention '
+                             'in sequence encoder. '
+                             'Only used if model_class is SequenceInputGNN and sequence_encoder is Transformer.')
 
     # Regularization.
-    parser.add_argument('--dropout', type=float, default=0)
+    parser.add_argument('--dropout', type=float, default=0, help='Not used if model_class is LinearModel.')
     parser.add_argument('--weight_decay', type=float, default=0)
 
     # Training parameters.
@@ -212,30 +255,34 @@ def main():
 
     torch.manual_seed(0)
 
-    dataset = Dataset(name=args.dataset,
-                      prediction_horizon=args.prediction_horizon,
-                      only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,
-                      direct_lookback_num_steps=args.direct_lookback_num_steps,
-                      seasonal_lookback_periods=args.seasonal_lookback_periods,
-                      seasonal_lookback_num_steps=args.seasonal_lookback_num_steps,
-                      drop_early_train_timestamps=args.drop_early_train_timestamps,
-                      reverse_edges=args.reverse_edges,
-                      to_undirected=args.to_undirected,
-                      target_transform=args.target_transform,
-                      transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
-                      imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
-                      add_features_for_nan_targets=args.add_features_for_nan_targets,
-                      do_not_use_temporal_features=args.do_not_use_temporal_features,
-                      do_not_use_spatial_features=args.do_not_use_spatial_features,
-                      do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
-                      use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
-                      initialize_learnable_node_embeddings_with_deepwalk=\
-                          args.initialize_learnable_node_embeddings_with_deepwalk,
-                      imputation_strategy_for_num_features=args.imputation_strategy_for_numerical_features,
-                      num_features_transform=args.numerical_features_transform,
-                      train_batch_size=args.train_batch_size,
-                      eval_batch_size=args.eval_batch_size,
-                      device=args.device)
+    Model = ModelRegistry.get_model_class(args.model_class)
+
+    dataset = Dataset(
+        name=args.dataset,
+        prediction_horizon=args.prediction_horizon,
+        only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,
+        provide_sequnce_inputs=Model.sequence_input,
+        direct_lookback_num_steps=args.direct_lookback_num_steps,
+        seasonal_lookback_periods=args.seasonal_lookback_periods,
+        seasonal_lookback_num_steps=args.seasonal_lookback_num_steps,
+        drop_early_train_timestamps=args.drop_early_train_timestamps,
+        reverse_edges=args.reverse_edges,
+        to_undirected=args.to_undirected,
+        target_transform=args.target_transform,
+        transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
+        imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
+        add_features_for_nan_targets=args.add_features_for_nan_targets,
+        do_not_use_temporal_features=args.do_not_use_temporal_features,
+        do_not_use_spatial_features=args.do_not_use_spatial_features,
+        do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
+        use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
+        initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
+        imputation_strategy_for_num_features=args.imputation_strategy_for_numerical_features,
+        num_features_transform=args.numerical_features_transform,
+        train_batch_size=args.train_batch_size,
+        eval_batch_size=args.eval_batch_size,
+        device=args.device
+    )
 
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True, num_workers=1)
@@ -256,39 +303,41 @@ def main():
     num_steps = len(train_timestamps_loader) * args.num_epochs
 
     for run in range(1, args.num_runs + 1):
-        if args.model == 'linear':
-            model = LinearModel(features_dim=dataset.features_dim, output_dim=dataset.targets_dim)
-        else:
-            model = NeuralNetworkModel(model_name=args.model,
-                                       num_layers=args.num_layers,
-                                       features_dim=dataset.features_dim,
-                                       hidden_dim=args.hidden_dim,
-                                       output_dim=dataset.targets_dim,
-                                       num_heads=args.num_heads,
-                                       normalization=args.normalization,
-                                       dropout=args.dropout,
-                                       use_learnable_node_embeddings=args.use_learnable_node_embeddings,
-                                       num_nodes=dataset.graph.num_nodes(),
-                                       learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
-                                       initialize_learnable_node_embeddings_with_deepwalk=\
-                                           args.initialize_learnable_node_embeddings_with_deepwalk,
-                                       deepwalk_node_embeddings=\
-                                           dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
-                                       use_plr_for_num_features=args.use_plr_for_num_features,
-                                       num_features_mask=dataset.num_features_mask,
-                                       plr_num_features_num_frequencies=args.plr_num_features_num_frequencies,
-                                       plr_num_features_frequency_scale=args.plr_num_features_frequency_scale,
-                                       plr_num_features_embedding_dim=args.plr_num_features_embedding_dim,
-                                       plr_num_features_shared_linear=args.plr_num_features_shared_linear,
-                                       plr_num_features_shared_frequencies=args.plr_num_features_shared_frequencies,
-                                       use_plr_for_past_targets=args.use_plr_for_past_targets,
-                                       past_targets_mask=dataset.past_targets_mask,
-                                       plr_past_targets_num_frequencies=args.plr_past_targets_num_frequencies,
-                                       plr_past_targets_frequency_scale=args.plr_past_targets_frequency_scale,
-                                       plr_past_targets_embedding_dim=args.plr_past_targets_embedding_dim,
-                                       plr_past_targets_shared_linear=args.plr_past_targets_shared_linear,
-                                       plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies)
-
+        model = Model(
+            neighborhood_aggregation_name=args.neighborhood_aggregation,
+            sequence_encoder_name=args.sequence_encoder,
+            normalization_name=args.normalization,
+            num_residual_blocks=args.num_residual_blocks,
+            features_dim=dataset.features_dim,
+            hidden_dim=args.hidden_dim,
+            output_dim=dataset.targets_dim,
+            neighborhood_aggr_attn_num_heads=args.neighborhood_aggr_attn_num_heads,
+            seq_encoder_num_layers=args.seq_encoder_num_layers,
+            seq_encoder_rnn_type_name=args.seq_encoder_rnn_type,
+            seq_encoder_attn_num_heads=args.seq_encoder_attn_num_heads,
+            seq_encoder_bidir_attn=args.seq_encoder_bidir_attn,
+            seq_encoder_seq_len=args.direct_lookback_num_steps,
+            dropout=args.dropout,
+            use_learnable_node_embeddings=args.use_learnable_node_embeddings,
+            num_nodes=dataset.graph.num_nodes(),
+            learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
+            initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
+            deepwalk_node_embeddings=dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
+            use_plr_for_num_features=args.use_plr_for_num_features,
+            num_features_mask=dataset.num_features_mask,
+            plr_num_features_frequencies_dim=args.plr_num_features_frequencies_dim,
+            plr_num_features_frequencies_scale=args.plr_num_features_frequencies_scale,
+            plr_num_features_embedding_dim=args.plr_num_features_embedding_dim,
+            plr_num_features_shared_linear=args.plr_num_features_shared_linear,
+            plr_num_features_shared_frequencies=args.plr_num_features_shared_frequencies,
+            use_plr_for_past_targets=args.use_plr_for_past_targets,
+            past_targets_mask=dataset.past_targets_mask,
+            plr_past_targets_frequencies_dim=args.plr_past_targets_frequencies_dim,
+            plr_past_targets_frequencies_scale=args.plr_past_targets_frequencies_scale,
+            plr_past_targets_embedding_dim=args.plr_past_targets_embedding_dim,
+            plr_past_targets_shared_linear=args.plr_past_targets_shared_linear,
+            plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
+        )
         model.to(args.device)
 
         parameter_groups = get_parameter_groups(model)

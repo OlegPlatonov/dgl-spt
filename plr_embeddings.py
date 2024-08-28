@@ -7,16 +7,16 @@ from torch import nn
 
 
 class PeriodicEmbeddings(nn.Module):
-    def __init__(self, features_dim, num_frequencies, frequency_scale, shared_frequencies=False):
+    def __init__(self, features_dim, frequencies_dim, frequencies_scale, shared_frequencies=False):
         super().__init__()
         if shared_frequencies:
-            self.frequencies = nn.Parameter(torch.randn(1, num_frequencies) * frequency_scale)
+            self.frequencies = nn.Parameter(torch.randn(1, frequencies_dim) * frequencies_scale)
         else:
-            self.frequencies = nn.Parameter(torch.randn(features_dim, num_frequencies) * frequency_scale)
+            self.frequencies = nn.Parameter(torch.randn(features_dim, frequencies_dim) * frequencies_scale)
 
     def forward(self, x):
         x = 2 * torch.pi * self.frequencies[None, ...] * x[..., None]
-        x = torch.cat([torch.cos(x), torch.sin(x)], -1)
+        x = torch.cat([torch.cos(x), torch.sin(x)], axis=-1)
 
         return x
 
@@ -25,31 +25,31 @@ class NLinear(nn.Module):
     def __init__(self, features_dim, input_dim, output_dim, bias=True):
         super().__init__()
 
-        init_max = 1 / input_dim ** 0.5
+        init_max = 1 / torch.tensor(input_dim).sqrt()
         self.weight = nn.Parameter(torch.Tensor(features_dim, input_dim, output_dim).uniform_(-init_max, init_max))
         self.bias = nn.Parameter(torch.Tensor(features_dim, output_dim).uniform_(-init_max, init_max)) if bias else None
 
     def forward(self, x):
-        x = (x[..., None] * self.weight[None, ...]).sum(axis=2)
+        x = (x[..., None] * self.weight).sum(axis=-2)
         if self.bias is not None:
-            x = x + self.bias[None, ...]
+            x = x + self.bias
 
         return x
 
 
 class PLREmbeddings(nn.Module):
-    def __init__(self, features_dim, num_frequencies, frequency_scale, embedding_dim, shared_linear=False,
+    def __init__(self, features_dim, frequencies_dim, frequencies_scale, embedding_dim, shared_linear=False,
                  shared_frequencies=False):
         super().__init__()
 
         if shared_linear:
-            linear_layer = nn.Linear(in_features=num_frequencies * 2, out_features=embedding_dim)
+            linear_layer = nn.Linear(in_features=frequencies_dim * 2, out_features=embedding_dim)
         else:
-            linear_layer = NLinear(features_dim=features_dim, input_dim=num_frequencies * 2, output_dim=embedding_dim)
+            linear_layer = NLinear(features_dim=features_dim, input_dim=frequencies_dim * 2, output_dim=embedding_dim)
 
         self.plr_embeddings = nn.Sequential(
-            PeriodicEmbeddings(features_dim=features_dim, num_frequencies=num_frequencies,
-                               frequency_scale=frequency_scale, shared_frequencies=shared_frequencies),
+            PeriodicEmbeddings(features_dim=features_dim, frequencies_dim=frequencies_dim,
+                               frequencies_scale=frequencies_scale, shared_frequencies=shared_frequencies),
             linear_layer,
             nn.ReLU()
         )

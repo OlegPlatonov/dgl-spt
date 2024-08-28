@@ -20,7 +20,7 @@ class Dataset:
                                                           random_state=0)
     }
 
-    def __init__(self, name, prediction_horizon=12, only_predict_at_end_of_horizon=False,
+    def __init__(self, name, prediction_horizon=12, only_predict_at_end_of_horizon=False, provide_sequnce_inputs=False,
                  direct_lookback_num_steps=48, seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
                  drop_early_train_timestamps='direct', reverse_edges=False, to_undirected=False,
                  target_transform='none', transform_targets_for_each_node_separately=False,
@@ -218,19 +218,31 @@ class Dataset:
 
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO PAST TARGETS THAT WILL BE USED AS FEATURES
 
-        if seasonal_lookback_periods is not None and seasonal_lookback_num_steps is None:
+        # Check validity of seasonal lookback arguments.
+        if (provide_sequnce_inputs and
+                (seasonal_lookback_periods is not None or seasonal_lookback_num_steps is not None)):
             raise ValueError(
-                'If argument seasonal_lookback_periods is provided, then argument seasonal_lookback_num_steps '
-                'should also be provided.')
+                'Seasonal lookback is not meant to be used with sequence input, as sequential timestamps are required '
+                'for sequence input to a model. Either set sequence input to False and use a signle input model or '
+                'disable seasonal lookback by setting seasonal_lookback_periods and seasonal_lookback_num_steps '
+                'arguments to None.'
+            )
+        elif seasonal_lookback_periods is not None and seasonal_lookback_num_steps is None:
+            raise ValueError(
+                'If argument seasonal_lookback_periods is provided, then argument seasonal_lookback_num_steps should '
+                'also be provided.'
+            )
         elif seasonal_lookback_periods is None and seasonal_lookback_num_steps is not None:
             raise ValueError(
-                'If argument seasonal_lookback_num_steps is provided, then argument seasonal_lookback_periods '
-                'should also be provided.')
+                'If argument seasonal_lookback_num_steps is provided, then argument seasonal_lookback_periods should '
+                'also be provided.'
+            )
         elif (seasonal_lookback_periods is not None and
               len(seasonal_lookback_periods) != len(seasonal_lookback_num_steps)):
             raise ValueError(
-                'Arguments seasonal_lookback_periods and seasonal_lookback_num_steps should be provided with '
-                'the same number of values.')
+                'Arguments seasonal_lookback_periods and seasonal_lookback_num_steps should be provided with the same '
+                'number of values.'
+            )
 
         past_timestamp_shifts_for_features = - np.arange(start=0, stop=direct_lookback_num_steps)
 
@@ -258,7 +270,7 @@ class Dataset:
             # and because of this it will not be possible to load it into a torch tensor using torch.from_numpy.
             past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
 
-        past_targets_features_dim = len(past_timestamp_shifts_for_features)
+        past_targets_features_dim = 1 if provide_sequnce_inputs else len(past_timestamp_shifts_for_features)
         past_targets_nan_mask_features_dim = past_targets_features_dim * add_features_for_nan_targets
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
@@ -279,6 +291,12 @@ class Dataset:
             future_timestamp_shifts_for_prediction = np.arange(start=1, stop=prediction_horizon + 1)
 
         # PREPARE INDICES OF TIMESTAMPS AT WHICH PREDICTIONS WILL BE MADE FOR EACH SPLIT
+
+        if provide_sequnce_inputs and drop_early_train_timestamps != 'direct':
+            raise ValueError(
+                f'If provide_sequnce_inputs argument is True, than only "direct" is a valid value for '
+                f'drop_early_train_timestamps argument, but value {drop_early_train_timestamps} was provided instead.'
+            )
 
         if drop_early_train_timestamps == 'all':
             first_train_timestamp = - past_timestamp_shifts_for_features.min()
@@ -322,6 +340,7 @@ class Dataset:
         # STORE EVERYTHING WE MIGHT NEED
 
         self.name = name
+        self.provide_sequence_inputs = provide_sequnce_inputs
         self.device = device
 
         self.num_timestamps = num_timestamps
@@ -392,8 +411,9 @@ class Dataset:
         self.targets_dim = 1 if only_predict_at_end_of_horizon else prediction_horizon
         self.past_targets_features_dim = past_targets_features_dim
         self.features_dim = features_dim
+        self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
 
-    def get_timestamp_features(self, timestamp):
+    def get_timestamp_features_as_signle_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
@@ -408,14 +428,41 @@ class Dataset:
             past_targets_nan_mask = torch.empty(self.num_nodes, 0, device=self.device)
 
         temporal_features = self.temporal_features[timestamp].to(self.device).expand(self.num_nodes, -1)
-        spatial_features = self.spatial_features.to(self.device).squeeze(0)
         spatiotemporal_features = self.spatiotemporal_features[timestamp].to(self.device)
+        spatial_features = self.spatial_features.to(self.device).squeeze(0)
         deepwalk_embeddings = self.deepwalk_embeddings.to(self.device).squeeze(0)
 
         features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
 
         return features
+
+    def get_timestamp_features_as_sequence_input(self, timestamp):
+        past_timestamps = timestamp + self.past_timestamp_shifts_for_features
+
+        past_targets = self.targets[past_timestamps].to(self.device).T.unsqueeze(-1)
+
+        if self.add_features_for_nan_targets:
+            past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device).T.unsqueeze(-1)
+        else:
+            past_targets_nan_mask = torch.empty(self.num_nodes, self.seq_len, 0, device=self.device)
+
+        temporal_features = self.temporal_features[past_timestamps].to(self.device).transpose(0, 1)\
+            .expand(self.num_nodes, -1, -1)
+        spatiotemporal_features = self.spatiotemporal_features[past_timestamps].to(self.device).transpose(0, 1)
+        spatial_features = self.spatial_features.to(self.device).squeeze(0).unsqueeze(1).expand(-1, self.seq_len, -1)
+        deepwalk_embeddings = self.deepwalk_embeddings.to(self.device).squeeze(0).unsqueeze(1).expand(-1, self.seq_len, -1)
+
+        features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
+                              spatiotemporal_features, deepwalk_embeddings], axis=2)
+
+        return features
+
+    def get_timestamp_features(self, timestamp):
+        if self.provide_sequence_inputs:
+            return self.get_timestamp_features_as_sequence_input(timestamp)
+        else:
+            return self.get_timestamp_features_as_signle_input(timestamp)
 
     def get_timestamp_targets(self, timestamp):
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
@@ -430,10 +477,10 @@ class Dataset:
 
         return features, targets, targets_nan_mask
 
-    def get_timestamps_batch_features(self, timestamps_batch):
+    def get_timestamps_batch_features_as_single_input(self, timestamps_batch):
         batch_size = len(timestamps_batch)
 
-        # The shape of past_timestamps is [batch_size, targets_dim].
+        # The shape of past_timestamps is [batch_size, past_targets_features_dim].
         past_timestamps = timestamps_batch[:, None] + self.past_timestamp_shifts_for_features[None, :]
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
@@ -470,6 +517,55 @@ class Dataset:
                               spatiotemporal_features, deepwalk_embeddings], axis=1)
 
         return features
+
+    def get_timestamps_batch_features_as_sequence_input(self, timestamps_batch):
+        batch_size = len(timestamps_batch)
+
+        # The shape of past_timestamps is [batch_size, seq_len].
+        past_timestamps = timestamps_batch[:, None] + self.past_timestamp_shifts_for_features[None, :]
+
+        # The shape of past targets and past_targets_nan_mask changes from
+        # [batch_size, seq_len, num_nodes] to
+        # [batch_size, num_nodes, seq_len] to
+        # [num_nodes * batch_size, seq_len] to
+        # [num_nodes * batch_size, seq_len, 1].
+        past_targets = self.targets[past_timestamps].to(self.device).transpose(1, 2).flatten(start_dim=0, end_dim=1)\
+            .unsqueeze(-1)
+
+        if self.add_features_for_nan_targets:
+            past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device).transpose(1, 2)\
+                .flatten(start_dim=0, end_dim=1).unsqueeze(-1)
+        else:
+            past_targets_nan_mask = torch.empty(self.num_nodes * batch_size, self.seq_len, 0, device=self.device)
+
+        temporal_features = self.temporal_features[past_timestamps].to(self.device).squeeze(2)\
+            .repeat_interleave(repeats=self.num_nodes, dim=0)
+        spatiotemporal_features = self.spatiotemporal_features[past_timestamps].to(self.device).transpose(1, 2)\
+            .flatten(start_dim=0, end_dim=1)
+
+        if batch_size == self.train_batch_size:
+            spatial_features = self.spatial_features_batched_train
+            deepwalk_embeddings = self.deepwalk_embeddings_batched_train
+        elif batch_size == self.eval_batch_size:
+            spatial_features = self.spatial_features_batched_eval
+            deepwalk_embeddings = self.deepwalk_embeddings_batched_eval
+        else:
+            spatial_features = self.spatial_features.to(self.device).repeat(1, batch_size, 1)
+            deepwalk_embeddings = self.deepwalk_embeddings.to(self.device).repeat(1, batch_size, 1)
+
+        spatial_features = spatial_features.squeeze(0).unsqueeze(1).expand(-1, self.seq_len, -1)
+        deepwalk_embeddings = deepwalk_embeddings.squeeze(0).unsqueeze(1).expand(-1, self.seq_len, -1)
+
+        features = torch.cat([past_targets, past_targets_nan_mask, temporal_features, spatial_features,
+                              spatiotemporal_features, deepwalk_embeddings], axis=2)
+
+        return features
+
+    def get_timestamps_batch_features(self, timestamps_batch):
+        if self.provide_sequence_inputs:
+            return self.get_timestamps_batch_features_as_sequence_input(timestamps_batch)
+        else:
+            return self.get_timestamps_batch_features_as_single_input(timestamps_batch)
 
     def get_timestamps_batch_targets(self, timestamps_batch):
         # The shape of future_timestamps is [batch_size, targets_dim].

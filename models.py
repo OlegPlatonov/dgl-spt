@@ -1,27 +1,72 @@
+"""
+Ok, so this module looks scary. It has abstract base classes, metaclasses, and all that stuff. But what you really need
+to know to use it, is that there are two abstract base classes: SingleInputModel and SequenceInputModel, and each model
+used in this project should be a sublass of one of these two abstract base classes. If the model only takes as input
+information about one timestamp, that is, a tensor of shape [num_nodes, features_dim] (which might include information
+about targets from previous timestamps in the features), than this model shpuld be a subclass of SingleInputModel.
+If the model takes as input information about a sequence of timestamps, that is, a tensor of shape
+[num_nodes, num_timestamps, features_dim], than this model should be a subclass of SequenceInputModel.
+"""
+
+from abc import ABC, ABCMeta
 import torch
 from torch import nn
-from modules import (ResidualModuleWrapper, FeedForwardModule, GraphMeanAggregationAndFeedForwardModule,
-                     GraphAttnGATAggregationAndFeedForwardModule, GraphAttnTrfAggregationAndFeedForwardModule)
-from plr_embeddings import PLREmbeddings
+from modules import (ResidualModulesWrapper, FeedForwardModule,
+                     NEIGHBORHOOD_AGGREGATION_MODULES, SEQUENCE_ENCODER_MODULES, NORMALIZATION_MODULES,
+                     FeaturesPreparatorForDeepModels)
 
 
-MODULES = {
-    'ResNet': FeedForwardModule,
-    'ResNet-MeanAggr': GraphMeanAggregationAndFeedForwardModule,
-    'ResNet-AttnGATAggr': GraphAttnGATAggregationAndFeedForwardModule,
-    'ResNet-AttnTrfAggr': GraphAttnTrfAggregationAndFeedForwardModule
-}
+class ModelRegistry(ABCMeta):
+    registry = {}
+
+    def __new__(mcs, name, bases, attrs):
+        new_cls = ABCMeta.__new__(mcs, name, bases, attrs)
+        mcs.registry[new_cls.__name__] = new_cls
+
+        return new_cls
+
+    @classmethod
+    def get_model_class(mcs, model_class_name):
+        model_class = mcs.registry[model_class_name]
+
+        return model_class
 
 
-NORMALIZATION = {
-    'none': nn.Identity,
-    'LayerNorm': nn.LayerNorm,
-    'BatchNorm': nn.BatchNorm1d
-}
+class SingleInputModel(nn.Module, ABC, metaclass=ModelRegistry):
+    """
+    Abstract base class for models that take as input a tensor of shape [num_nodes, features_dim].
+    This input tensor contains for each node the features of this node at the current timestamp and the target values
+    for this node at the current and previous timestamps. The model uses this data (in the case of a linear model) or
+    deep representations of this data (in the case of deep models) to predict target values for this node at the future
+    timestamps.
+
+    Each model in this project should be a subclass of either this abstract base class or SequenceInputModel abstract
+    base class.
+    """
+    single_input = True
+    sequence_input = False
 
 
-class LinearModel(nn.Module):
-    def __init__(self, features_dim, output_dim):
+class SequenceInputModel(nn.Module, ABC, metaclass=ModelRegistry):
+    """
+    Abstract base class for models that take as input a tensor of shape [num_nodes, num_timestamps, features_dim].
+    This input tensor contains for each node a sequence, in whcih each sequence element contains the features of
+    this node and the target value of this node at a single timestamp - the timestamp corresponding to this sequence
+    element. To predict target values for this node at the future timestamps, the deep representations of this sequence
+    need to be converted to a single representation. This can be done by taking the deep representations of the final
+    element of this sequence or by taking the mean and max of the deep representations computed over the entire
+    sequence or by using all these methods and concatenating their outputs.
+
+    Each model in this project should be a subclass of either this abstract base class or SingleInputModel abstract
+    base class.
+    """
+    single_input = False
+    sequence_input = True
+
+
+class LinearModel(SingleInputModel):
+    """A simple graph-agnostic linear model."""
+    def __init__(self, features_dim, output_dim, **kwargs):
         super().__init__()
         self.linear = nn.Linear(in_features=features_dim, out_features=output_dim)
 
@@ -29,106 +74,65 @@ class LinearModel(nn.Module):
         return self.linear(x).squeeze(1)
 
 
-class NeuralNetworkModel(nn.Module):
-    def __init__(self, model_name, num_layers, features_dim, hidden_dim, output_dim, num_heads, normalization, dropout,
+class ResNet(SingleInputModel):
+    """A graph-agnostic deep model with skip-connections and normalization."""
+    def __init__(self, normalization_name, num_residual_blocks, features_dim, hidden_dim, output_dim, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
-                 use_plr_for_num_features, num_features_mask, plr_num_features_num_frequencies,
-                 plr_num_features_frequency_scale, plr_num_features_embedding_dim,
+                 use_plr_for_num_features, num_features_mask, plr_num_features_frequencies_dim,
+                 plr_num_features_frequencies_scale, plr_num_features_embedding_dim,
                  plr_num_features_shared_linear, plr_num_features_shared_frequencies,
-                 use_plr_for_past_targets, past_targets_mask, plr_past_targets_num_frequencies,
-                 plr_past_targets_frequency_scale, plr_past_targets_embedding_dim,
-                 plr_past_targets_shared_linear, plr_past_targets_shared_frequencies):
+                 use_plr_for_past_targets, past_targets_mask, plr_past_targets_frequencies_dim,
+                 plr_past_targets_frequencies_scale, plr_past_targets_embedding_dim,
+                 plr_past_targets_shared_linear, plr_past_targets_shared_frequencies,
+                 **kwargs):
         super().__init__()
 
-        module = MODULES[model_name]
-        normalization = NORMALIZATION[normalization]
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
 
-        input_dim = features_dim
+        self.features_preparator = FeaturesPreparatorForDeepModels(
+            features_dim=features_dim,
+            use_learnable_node_embeddings=use_learnable_node_embeddings,
+            num_nodes=num_nodes,
+            learnable_node_embeddings_dim=learnable_node_embeddings_dim,
+            initialize_learnable_node_embeddings_with_deepwalk=initialize_learnable_node_embeddings_with_deepwalk,
+            deepwalk_node_embeddings=deepwalk_node_embeddings,
+            use_plr_for_num_features=use_plr_for_num_features,
+            num_features_mask=num_features_mask,
+            plr_num_features_frequencies_dim=plr_num_features_frequencies_dim,
+            plr_num_features_frequencies_scale=plr_num_features_frequencies_scale,
+            plr_num_features_embedding_dim=plr_num_features_embedding_dim,
+            plr_num_features_shared_linear=plr_num_features_shared_linear,
+            plr_num_features_shared_frequencies=plr_num_features_shared_frequencies,
+            use_plr_for_past_targets=use_plr_for_past_targets,
+            past_targets_mask=past_targets_mask,
+            plr_past_targets_frequencies_dim=plr_past_targets_frequencies_dim,
+            plr_past_targets_frequencies_scale=plr_past_targets_frequencies_scale,
+            plr_past_targets_embedding_dim=plr_past_targets_embedding_dim,
+            plr_past_targets_shared_linear=plr_past_targets_shared_linear,
+            plr_past_targets_shared_frequencies=plr_past_targets_shared_frequencies
+        )
 
-        self.use_learnable_node_embeddings = use_learnable_node_embeddings
-        if use_learnable_node_embeddings:
-            input_dim += learnable_node_embeddings_dim
-            if initialize_learnable_node_embeddings_with_deepwalk:
-                if learnable_node_embeddings_dim != deepwalk_node_embeddings.shape[1]:
-                    raise ValueError(f'initialize_learnable_node_embeddings_with_deepwalk argument is True, but the '
-                                     f'value of learnable_node_embeddings_dim argument does not match the dimension of '
-                                     f'the precomputed DeepWalk node embeddings: '
-                                     f'{learnable_node_embeddings_dim} != {deepwalk_node_embeddings.shape[1]}')
-
-                self.node_embeddings = nn.Embedding(num_embeddings=num_nodes,
-                                                    embedding_dim=learnable_node_embeddings_dim,
-                                                    _weight=deepwalk_node_embeddings)
-            else:
-                self.node_embeddings = nn.Embedding(num_embeddings=num_nodes,
-                                                    embedding_dim=learnable_node_embeddings_dim)
-
-        self.use_plr_for_num_features = use_plr_for_num_features
-        if use_plr_for_num_features:
-            num_features_dim = num_features_mask.sum()
-            input_dim = input_dim - num_features_dim + num_features_dim * plr_num_features_embedding_dim
-            self.plr_embeddings_num_features = PLREmbeddings(features_dim=num_features_dim,
-                                                             num_frequencies=plr_num_features_num_frequencies,
-                                                             frequency_scale=plr_num_features_frequency_scale,
-                                                             embedding_dim=plr_num_features_embedding_dim,
-                                                             shared_linear=plr_num_features_shared_linear,
-                                                             shared_frequencies=plr_num_features_shared_frequencies)
-
-            self.register_buffer('num_features_mask', num_features_mask)
-
-        self.use_plr_for_past_targtes = use_plr_for_past_targets
-        if use_plr_for_past_targets:
-            past_targets_dim = past_targets_mask.sum()
-            input_dim = input_dim - past_targets_dim + past_targets_dim * plr_past_targets_embedding_dim
-            self.plr_embeddings_past_targets = PLREmbeddings(features_dim=past_targets_dim,
-                                                             num_frequencies=plr_past_targets_num_frequencies,
-                                                             frequency_scale=plr_past_targets_frequency_scale,
-                                                             embedding_dim=plr_past_targets_embedding_dim,
-                                                             shared_linear=plr_past_targets_shared_linear,
-                                                             shared_frequencies=plr_past_targets_shared_frequencies)
-
-            if use_plr_for_num_features:
-                past_targets_mask = past_targets_mask[~num_features_mask]
-                num_features_dim = num_features_mask.sum()
-                embedded_num_features_dim = num_features_dim * plr_num_features_embedding_dim
-                embedded_num_features_shift = torch.zeros(embedded_num_features_dim, dtype=bool)
-                past_targets_mask = torch.cat([embedded_num_features_shift, past_targets_mask], axis=0)
-
-            self.register_buffer('past_targets_mask', past_targets_mask)
-
-        self.input_linear = nn.Linear(in_features=input_dim, out_features=hidden_dim)
+        self.input_linear = nn.Linear(in_features=self.features_preparator.output_dim, out_features=hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
         self.act = nn.GELU()
 
         self.residual_modules = nn.ModuleList()
-        for _ in range(num_layers):
-            residual_module = ResidualModuleWrapper(module=module,
-                                                    normalization=normalization,
-                                                    dim=hidden_dim,
-                                                    num_heads=num_heads,
-                                                    dropout=dropout)
+        for _ in range(num_residual_blocks):
+            residual_module = ResidualModulesWrapper(
+                modules=[
+                    NormalizationModule(hidden_dim),
+                    FeedForwardModule(dim=hidden_dim, dropout=dropout)
+                ]
+            )
 
             self.residual_modules.append(residual_module)
 
-        self.output_normalization = normalization(hidden_dim)
+        self.output_normalization = NormalizationModule(hidden_dim)
         self.output_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
 
     def forward(self, graph, x):
-        if self.use_plr_for_num_features:
-            x_num = x[:, self.num_features_mask]
-            x_num_embedded = self.plr_embeddings_num_features(x_num).flatten(start_dim=1)
-            x = torch.cat([x_num_embedded, x[:, ~self.num_features_mask]], axis=1)
-
-        if self.use_plr_for_past_targtes:
-            x_targets = x[:, self.past_targets_mask]
-            x_targets_embedded = self.plr_embeddings_past_targets(x_targets).flatten(start_dim=1)
-            x = torch.cat([x_targets_embedded, x[:, ~self.past_targets_mask]], axis=1)
-
-        if self.use_learnable_node_embeddings:
-            node_indices = torch.arange(graph.batch_num_nodes()[0], dtype=torch.int32,
-                                        device=self.node_embeddings.weight.device).repeat(graph.batch_size)
-            node_embs = self.node_embeddings(node_indices)
-            x = torch.cat([x, node_embs], axis=1)
+        x = self.features_preparator(x)
 
         x = self.input_linear(x)
         x = self.dropout(x)
@@ -136,6 +140,187 @@ class NeuralNetworkModel(nn.Module):
 
         for residual_module in self.residual_modules:
             x = residual_module(graph, x)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class SingleInputGNN(SingleInputModel):
+    """
+    Like ResNet, but additionally has a graph neighborhood aggregation (aka message passing) module in each residual
+    block. That is, each residual block consists of the following sequence of modules: normalization, graph
+    neighborhood aggregation, two-layer MLP.
+    """
+    def __init__(self, neighborhood_aggregation_name, normalization_name, num_residual_blocks, features_dim, hidden_dim,
+                 output_dim, neighborhood_aggr_attn_num_heads, dropout,
+                 use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
+                 initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
+                 use_plr_for_num_features, num_features_mask, plr_num_features_frequencies_dim,
+                 plr_num_features_frequencies_scale, plr_num_features_embedding_dim,
+                 plr_num_features_shared_linear, plr_num_features_shared_frequencies,
+                 use_plr_for_past_targets, past_targets_mask, plr_past_targets_frequencies_dim,
+                 plr_past_targets_frequencies_scale, plr_past_targets_embedding_dim,
+                 plr_past_targets_shared_linear, plr_past_targets_shared_frequencies,
+                 **kwargs):
+        super().__init__()
+
+        NeighborhoodAggregationModule = NEIGHBORHOOD_AGGREGATION_MODULES[neighborhood_aggregation_name]
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+
+        self.features_preparator = FeaturesPreparatorForDeepModels(
+            features_dim=features_dim,
+            use_learnable_node_embeddings=use_learnable_node_embeddings,
+            num_nodes=num_nodes,
+            learnable_node_embeddings_dim=learnable_node_embeddings_dim,
+            initialize_learnable_node_embeddings_with_deepwalk=initialize_learnable_node_embeddings_with_deepwalk,
+            deepwalk_node_embeddings=deepwalk_node_embeddings,
+            use_plr_for_num_features=use_plr_for_num_features,
+            num_features_mask=num_features_mask,
+            plr_num_features_frequencies_dim=plr_num_features_frequencies_dim,
+            plr_num_features_frequencies_scale=plr_num_features_frequencies_scale,
+            plr_num_features_embedding_dim=plr_num_features_embedding_dim,
+            plr_num_features_shared_linear=plr_num_features_shared_linear,
+            plr_num_features_shared_frequencies=plr_num_features_shared_frequencies,
+            use_plr_for_past_targets=use_plr_for_past_targets,
+            past_targets_mask=past_targets_mask,
+            plr_past_targets_frequencies_dim=plr_past_targets_frequencies_dim,
+            plr_past_targets_frequencies_scale=plr_past_targets_frequencies_scale,
+            plr_past_targets_embedding_dim=plr_past_targets_embedding_dim,
+            plr_past_targets_shared_linear=plr_past_targets_shared_linear,
+            plr_past_targets_shared_frequencies=plr_past_targets_shared_frequencies
+        )
+
+        self.input_linear = nn.Linear(in_features=self.features_preparator.output_dim, out_features=hidden_dim)
+        self.dropout = nn.Dropout(p=dropout)
+        self.act = nn.GELU()
+
+        self.residual_modules = nn.ModuleList()
+        for _ in range(num_residual_blocks):
+            residual_module = ResidualModulesWrapper(
+                modules=[
+                    NormalizationModule(hidden_dim),
+                    NeighborhoodAggregationModule(dim=hidden_dim, num_heads=neighborhood_aggr_attn_num_heads,
+                                                  dropout=dropout),
+                    FeedForwardModule(dim=hidden_dim, num_inputs=2, dropout=dropout)
+                ]
+            )
+
+            self.residual_modules.append(residual_module)
+
+        self.output_normalization = NormalizationModule(hidden_dim)
+        self.output_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
+
+    def forward(self, graph, x):
+        x = self.features_preparator(x)
+
+        x = self.input_linear(x)
+        x = self.dropout(x)
+        x = self.act(x)
+
+        for residual_module in self.residual_modules:
+            x = residual_module(graph, x)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class SequenceInputGNN(SequenceInputModel):
+    """
+    Like ResNet, but additionally has a sequence encoder module and a graph neighborhood aggregation (aka message
+    passing) module in each residual block. That is, each residual block consists of the following sequence of modules:
+    normalization, sequence encoder, graph neighborhood aggregation, two-layer MLP. Also has one sequence encoder
+    module before all residual blocks.
+    """
+    def __init__(self, sequence_encoder_name, neighborhood_aggregation_name, normalization_name, num_residual_blocks,
+                 features_dim, hidden_dim, output_dim, neighborhood_aggr_attn_num_heads,
+                 seq_encoder_num_layers, seq_encoder_rnn_type_name, seq_encoder_attn_num_heads,
+                 seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
+                 use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
+                 initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
+                 use_plr_for_num_features, num_features_mask, plr_num_features_frequencies_dim,
+                 plr_num_features_frequencies_scale, plr_num_features_embedding_dim,
+                 plr_num_features_shared_linear, plr_num_features_shared_frequencies,
+                 use_plr_for_past_targets, past_targets_mask, plr_past_targets_frequencies_dim,
+                 plr_past_targets_frequencies_scale, plr_past_targets_embedding_dim,
+                 plr_past_targets_shared_linear, plr_past_targets_shared_frequencies,
+                 **kwargs):
+        super().__init__()
+
+        SequenceEncoderModule = SEQUENCE_ENCODER_MODULES[sequence_encoder_name]
+        NeighborhoodAggregationModule = NEIGHBORHOOD_AGGREGATION_MODULES[neighborhood_aggregation_name]
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+
+        self.features_preparator = FeaturesPreparatorForDeepModels(
+            features_dim=features_dim,
+            use_learnable_node_embeddings=use_learnable_node_embeddings,
+            num_nodes=num_nodes,
+            learnable_node_embeddings_dim=learnable_node_embeddings_dim,
+            initialize_learnable_node_embeddings_with_deepwalk=initialize_learnable_node_embeddings_with_deepwalk,
+            deepwalk_node_embeddings=deepwalk_node_embeddings,
+            use_plr_for_num_features=use_plr_for_num_features,
+            num_features_mask=num_features_mask,
+            plr_num_features_frequencies_dim=plr_num_features_frequencies_dim,
+            plr_num_features_frequencies_scale=plr_num_features_frequencies_scale,
+            plr_num_features_embedding_dim=plr_num_features_embedding_dim,
+            plr_num_features_shared_linear=plr_num_features_shared_linear,
+            plr_num_features_shared_frequencies=plr_num_features_shared_frequencies,
+            use_plr_for_past_targets=use_plr_for_past_targets,
+            past_targets_mask=past_targets_mask,
+            plr_past_targets_frequencies_dim=plr_past_targets_frequencies_dim,
+            plr_past_targets_frequencies_scale=plr_past_targets_frequencies_scale,
+            plr_past_targets_embedding_dim=plr_past_targets_embedding_dim,
+            plr_past_targets_shared_linear=plr_past_targets_shared_linear,
+            plr_past_targets_shared_frequencies=plr_past_targets_shared_frequencies
+        )
+
+        self.input_linear = nn.Linear(in_features=self.features_preparator.output_dim, out_features=hidden_dim)
+        self.input_sequence_encoder = SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name,
+                                                            num_layers=seq_encoder_num_layers, dim=hidden_dim,
+                                                            num_heads=seq_encoder_attn_num_heads,
+                                                            bidir_attn=seq_encoder_bidir_attn,
+                                                            seq_len=seq_encoder_seq_len, dropout=dropout)
+        self.dropout = nn.Dropout(p=dropout)
+        self.act = nn.GELU()
+
+        self.residual_modules = nn.ModuleList()
+        for _ in range(num_residual_blocks):
+            residual_module = ResidualModulesWrapper(
+                modules=[
+                    NormalizationModule(hidden_dim),
+                    SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name, num_layers=seq_encoder_num_layers,
+                                          dim=hidden_dim, num_heads=seq_encoder_attn_num_heads,
+                                          bidir_attn=seq_encoder_bidir_attn, seq_len=seq_encoder_seq_len,
+                                          dropout=dropout),
+                    NeighborhoodAggregationModule(dim=hidden_dim, num_heads=neighborhood_aggr_attn_num_heads,
+                                                  dropout=dropout),
+                    FeedForwardModule(dim=hidden_dim, num_inputs=2, dropout=dropout)
+                ]
+            )
+
+            self.residual_modules.append(residual_module)
+
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+
+    def forward(self, graph, x):
+        x = self.features_preparator(x)
+
+        x = self.input_linear(x)
+        x = self.input_sequence_encoder(x)
+        x = self.dropout(x)
+        x = self.act(x)
+
+        for residual_module in self.residual_modules:
+            x = residual_module(graph, x)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
 
         x = self.output_normalization(x)
         x = self.output_linear(x).squeeze(1)

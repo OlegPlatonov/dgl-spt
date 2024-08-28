@@ -102,3 +102,8 @@ def get_parameter_groups(model):
     ]
 
     return parameter_groups
+
+
+def _check_dim_and_num_heads_consistency(dim, num_heads):
+    if dim % num_heads != 0:
+        raise ValueError('Dimension mismatch: hidden_dim should be a multiple of num_heads.')
