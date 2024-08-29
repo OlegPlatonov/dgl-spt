@@ -42,12 +42,7 @@ class Dataset:
         print('Preparing data...')
         data = np.load(path, allow_pickle=True)
 
-        num_timestamps = data['num_timestamps'].item()
-        num_nodes = data['num_nodes'].item()
-
-        first_timestamp_datetime = data['first_timestamp_datetime'].item()
-        last_timestamp_datetime = data['last_timestamp_datetime'].item()
-        timestamp_frequency = data['timestamp_frequency'].item()
+        # GET TIME SPLITS
 
         # Timestamp indices of all targets available for a particular split. Note that the number of timestamps
         # at which predictions can be made for a particular split will be different because it also depends on
@@ -59,6 +54,9 @@ class Dataset:
         # PREPARE TARGETS
 
         targets = data['targets'].astype(np.float32)
+
+        num_timestamps = data['num_timestamps'].item() if 'num_timestamps' in data else targets.shape[0]
+        num_nodes = data['num_nodes'].item() if 'num_nodes' in data else targets.shape[1]
 
         targets_nan_mask = np.isnan(targets)
 
@@ -354,10 +352,6 @@ class Dataset:
 
         self.num_timestamps = num_timestamps
         self.num_nodes = num_nodes
-
-        self.first_timestamp_datetime = first_timestamp_datetime
-        self.last_timestamp_datetime = last_timestamp_datetime
-        self.timestamp_frequency = timestamp_frequency
 
         self.all_train_targets_timestamps = torch.from_numpy(all_train_targets_timestamps)
         self.all_val_targets_timestamps = torch.from_numpy(all_val_targets_timestamps)
