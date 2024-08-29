@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import torch
@@ -20,8 +21,9 @@ class Dataset:
                                                           random_state=0)
     }
 
-    def __init__(self, name, prediction_horizon=12, only_predict_at_end_of_horizon=False, provide_sequnce_inputs=False,
-                 direct_lookback_num_steps=48, seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
+    def __init__(self, name_or_path, prediction_horizon=12, only_predict_at_end_of_horizon=False,
+                 provide_sequnce_inputs=False, direct_lookback_num_steps=48,
+                 seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
                  drop_early_train_timestamps='direct', reverse_edges=False, to_undirected=False,
                  target_transform='none', transform_targets_for_each_node_separately=False,
                  imputation_startegy_for_nan_targets='prev', add_features_for_nan_targets=False,
@@ -30,8 +32,15 @@ class Dataset:
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
                  plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None, device='cpu'):
+        if name_or_path.endswith('.npz'):
+            name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
+            path = name_or_path
+        else:
+            name = name_or_path
+            path = f'data/{name.replace("-", "_")}.npz'
+
         print('Preparing data...')
-        data = np.load(f'data/{name.replace("-", "_")}.npz', allow_pickle=True)
+        data = np.load(path, allow_pickle=True)
 
         num_timestamps = data['num_timestamps'].item()
         num_nodes = data['num_nodes'].item()

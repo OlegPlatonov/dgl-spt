@@ -5,7 +5,12 @@ import numpy as np
 
 class Logger:
     def __init__(self, args):
-        self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset=args.dataset, name=args.name)
+        if args.dataset.endswith('.npz'):
+            dataset_name = os.path.splitext(os.path.basename(args.dataset))[0].replace('_', '-')
+        else:
+            dataset_name = args.dataset
+
+        self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset_name=dataset_name, experiment_name=args.name)
         self.metric = args.metric
         self.val_metrics = []
         self.test_metrics = []
@@ -74,12 +79,12 @@ class Logger:
         print(f'Test {self.metric} std: {metrics[f"test {self.metric} std"]:.4f}')
 
     @staticmethod
-    def get_save_dir(base_dir, dataset, name):
+    def get_save_dir(base_dir, dataset_name, experiment_name):
         idx = 1
-        save_dir = os.path.join(base_dir, dataset, f'{name}_{idx:02d}')
+        save_dir = os.path.join(base_dir, dataset_name, f'{experiment_name}_{idx:02d}')
         while os.path.exists(save_dir):
             idx += 1
-            save_dir = os.path.join(base_dir, dataset, f'{name}_{idx:02d}')
+            save_dir = os.path.join(base_dir, dataset_name, f'{experiment_name}_{idx:02d}')
 
         os.makedirs(save_dir)
 

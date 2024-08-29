@@ -17,8 +17,8 @@ def get_args():
     parser.add_argument('--name', type=str, required=True, help='Experiment name.')
     parser.add_argument('--save_dir', type=str, default='experiments', help='Base directory for saving information.')
     parser.add_argument('--dataset', type=str, default='pems-bay',
-                        choices=['metr-la', 'pems-bay', 'largest', 'largest-2019', 'city-roads-spt-M',
-                                 'city-roads-spt-L', 'weatherbecnh-era5', 'weatherbecnh-era5-usa'])
+                        help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
+                             'with data. Possible dataset names: metr-la, pems-bay, largest, largest-2019.')
     parser.add_argument('--metric', type=str, default='RMSE', choices=['RMSE', 'MAE'])
 
     # Select future timestamps targets from which will be predicted by the model.
@@ -258,7 +258,7 @@ def main():
     Model = ModelRegistry.get_model_class(args.model_class)
 
     dataset = Dataset(
-        name=args.dataset,
+        name_or_path=args.dataset,
         prediction_horizon=args.prediction_horizon,
         only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,
         provide_sequnce_inputs=Model.sequence_input,
