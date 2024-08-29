@@ -371,6 +371,7 @@ def main():
 
                 if (optimizer_steps_till_eval == 0 or
                         train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)):
+                    progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
                     model.eval()
                     metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
                                                        val_timestamps_loader=val_timestamps_loader,
