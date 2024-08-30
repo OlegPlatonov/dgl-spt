@@ -248,6 +248,78 @@ def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timesta
     return metrics
 
 
+def train_once(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_steps, eval_every,
+               lr, weight_decay, run_id, device, amp=False):
+    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
+                                         drop_last=True, num_workers=1)
+    val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
+                                       drop_last=False, num_workers=1)
+    test_timestamps_loader = DataLoader(dataset.test_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
+                                        drop_last=False, num_workers=1)
+
+    num_steps = len(train_timestamps_loader) * num_epochs
+
+    model.to(device)
+
+    parameter_groups = get_parameter_groups(model)
+    optimizer = torch.optim.AdamW(parameter_groups, lr=lr, weight_decay=weight_decay)
+    scaler = GradScaler(enabled=amp)
+
+    logger.start_run(run=run_id)
+    epoch = 1
+    steps_till_optimizer_step = num_accumulation_steps
+    optimizer_steps_till_eval = eval_every
+    optimizer_steps_done = 0
+    loss = 0
+    metrics = {}
+    train_timestamps_loader_iterator = iter(train_timestamps_loader)
+    model.train()
+    with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
+        for step in range(1, num_steps + 1):
+            cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
+            cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
+                                         loss_fn=loss_fn, amp=amp)
+            loss += cur_step_loss
+            steps_till_optimizer_step -= 1
+
+            if steps_till_optimizer_step == 0:
+                loss /= num_accumulation_steps
+                optimizer_step(loss=loss, optimizer=optimizer, scaler=scaler)
+                loss = 0
+                optimizer_steps_done += 1
+                steps_till_optimizer_step = num_accumulation_steps
+                optimizer_steps_till_eval -= 1
+
+            if (optimizer_steps_till_eval == 0 or
+                    train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)):
+                progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
+                model.eval()
+                metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
+                                                   val_timestamps_loader=val_timestamps_loader,
+                                                   test_timestamps_loader=test_timestamps_loader,
+                                                   loss_fn=loss_fn, metric=metric, amp=amp)
+                logger.update_metrics(metrics=metrics, step=optimizer_steps_done, epoch=epoch)
+                model.train()
+
+                if optimizer_steps_till_eval == 0:
+                    optimizer_steps_till_eval = eval_every
+
+            cur_step_metric = cur_step_loss.sqrt().item() if metric == 'RMSE' else cur_step_loss.item()
+
+            progress_bar.update()
+            progress_bar.set_postfix(
+                {metric: f'{value:.2f}' for metric, value in metrics.items()} |
+                {'cur step metric': f'{cur_step_metric:.2f}', 'epoch': epoch}
+            )
+
+            if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
+                train_timestamps_loader_iterator = iter(train_timestamps_loader)
+                epoch += 1
+
+    logger.finish_run()
+    model.cpu()
+
+
 def main():
     args = get_args()
 
@@ -284,23 +356,14 @@ def main():
         device=args.device
     )
 
-    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
-                                         drop_last=True, num_workers=1)
-    val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
-                                       drop_last=False, num_workers=1)
-    test_timestamps_loader = DataLoader(dataset.test_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
-                                        drop_last=False, num_workers=1)
-
     if args.metric == 'RMSE':
         loss_fn = F.mse_loss
     elif args.metric == 'MAE':
         loss_fn = F.l1_loss
     else:
-        raise ValueError(f'Unsupported metric: {args.metric}')
+        raise ValueError(f'Unsupported metric: {args.metric}.')
 
     logger = Logger(args)
-
-    num_steps = len(train_timestamps_loader) * args.num_epochs
 
     for run in range(1, args.num_runs + 1):
         model = Model(
@@ -338,65 +401,11 @@ def main():
             plr_past_targets_shared_linear=args.plr_past_targets_shared_linear,
             plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
         )
-        model.to(args.device)
 
-        parameter_groups = get_parameter_groups(model)
-        optimizer = torch.optim.AdamW(parameter_groups, lr=args.lr, weight_decay=args.weight_decay)
-        scaler = GradScaler(enabled=args.amp)
-
-        logger.start_run(run=run)
-        epoch = 1
-        steps_till_optimizer_step = args.num_accumulation_steps
-        optimizer_steps_till_eval = args.eval_every
-        optimizer_steps_done = 0
-        loss = 0
-        metrics = {}
-        train_timestamps_loader_iterator = iter(train_timestamps_loader)
-        model.train()
-        with tqdm(total=num_steps, desc=f'Run {run}') as progress_bar:
-            for step in range(1, num_steps + 1):
-                cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
-                cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
-                                             loss_fn=loss_fn, amp=args.amp)
-                loss += cur_step_loss
-                steps_till_optimizer_step -= 1
-
-                if steps_till_optimizer_step == 0:
-                    loss /= args.num_accumulation_steps
-                    optimizer_step(loss=loss, optimizer=optimizer, scaler=scaler)
-                    loss = 0
-                    optimizer_steps_done += 1
-                    steps_till_optimizer_step = args.num_accumulation_steps
-                    optimizer_steps_till_eval -= 1
-
-                if (optimizer_steps_till_eval == 0 or
-                        train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)):
-                    progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
-                    model.eval()
-                    metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
-                                                       val_timestamps_loader=val_timestamps_loader,
-                                                       test_timestamps_loader=test_timestamps_loader,
-                                                       loss_fn=loss_fn, metric=args.metric, amp=args.amp)
-                    logger.update_metrics(metrics=metrics, step=optimizer_steps_done, epoch=epoch)
-                    model.train()
-
-                    if optimizer_steps_till_eval == 0:
-                        optimizer_steps_till_eval = args.eval_every
-
-                cur_step_metric = cur_step_loss.sqrt().item() if args.metric == 'RMSE' else cur_step_loss.item()
-
-                progress_bar.update()
-                progress_bar.set_postfix(
-                    {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                    {'cur step metric': f'{cur_step_metric:.2f}', 'epoch': epoch}
-                )
-
-                if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
-                    train_timestamps_loader_iterator = iter(train_timestamps_loader)
-                    epoch += 1
-
-        logger.finish_run()
-        model.cpu()
+        train_once(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
+                   num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
+                   eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
+                   device=args.device, amp=args.amp)
 
     logger.print_metrics_summary()
 
