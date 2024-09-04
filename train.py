@@ -248,8 +248,11 @@ def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timesta
     return metrics
 
 
-def train_once(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_steps, eval_every,
-               lr, weight_decay, run_id, device, amp=False):
+def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
+          run_id, device, amp=False, seed=None):
+    if seed is not None:
+        torch.manual_seed(seed)
+
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True, num_workers=1)
     val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
@@ -324,8 +327,6 @@ def main():
     args = get_args()
 
     torch.set_num_threads(args.num_threads)
-
-    torch.manual_seed(0)
 
     Model = ModelRegistry.get_model_class(args.model_class)
 
@@ -402,10 +403,10 @@ def main():
             plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
         )
 
-        train_once(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
-                   num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
-                   eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
-                   device=args.device, amp=args.amp)
+        train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
+              num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
+              eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
+              device=args.device, amp=args.amp, seed=run)
 
     logger.print_metrics_summary()
 
