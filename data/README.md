@@ -62,10 +62,11 @@ Note that `cat_features_dim` can be zero (if there are no categorical features i
 If your graph is undirected, duplicate each edge (i.e., put both `(u, v)` and `(v, u)` edges in the array).
 
 Other optional objects and metadata can be added to the `.npz` dataset files as well. For example, in all our datasets,
-we also provide the following objects: `num_timestamps` and `num_nodes` (if not provided, they are inferred from
-the `targets` array shape), `first_timestamp_datetime`, `last_timestamp_datetime`, `timestamp_frequency`
-(these can be used to infer the time of any timestamp), `deepwalk_node_embeddings` (they can be used as additional
-node features).
+we also provide the following objects: `num_timestamps` (of type `int`) and `num_nodes` (of type `int`)
+(if not provided, these two values are inferred from the `targets` array shape),
+`first_timestamp_datetime` (of type `datetime.datetime`), `last_timestamp_datetime` (of type `datetime.datetime`),
+`timestamp_frequency` (of type `datetime.timedelta`) (these can be used to infer the time of any timestamp),
+`deepwalk_node_embeddings` (these embeddings can be used as additional node features).
 
 
 
