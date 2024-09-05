@@ -23,8 +23,8 @@ class Dataset:
 
     def __init__(self, name_or_path, prediction_horizon=12, only_predict_at_end_of_horizon=False,
                  provide_sequnce_inputs=False, direct_lookback_num_steps=48,
-                 seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
-                 drop_early_train_timestamps='direct', reverse_edges=False, to_undirected=False,
+                 seasonal_lookback_periods=None, seasonal_lookback_num_steps=None, drop_early_train_timestamps='direct',
+                 reverse_edges=False, to_undirected=False, use_forward_and_reverse_edges_as_different_edge_types=False,
                  target_transform='none', transform_targets_for_each_node_separately=False,
                  imputation_startegy_for_nan_targets='prev', add_features_for_nan_targets=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
@@ -212,12 +212,28 @@ class Dataset:
 
         # PREPARE GRAPH
 
+        if sum([reverse_edges, to_undirected, use_forward_and_reverse_edges_as_different_edge_types]) > 1:
+            raise ValueError('At most one of the graph edge processing arguments reverse_edges, to_undirected, '
+                             'use_forward_and_reverse_edges_as_different_edge_types can be True.')
+
         edges = torch.from_numpy(data['edges'])
-        graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
-        if reverse_edges:
-            graph = dgl.reverse(graph)
-        if to_undirected:
-            graph = dgl.to_bidirected(graph)
+
+        if use_forward_and_reverse_edges_as_different_edge_types:
+            graph = dgl.heterograph(
+                {
+                    ('node', 'forward_edge', 'node'): (edges[:, 0], edges[:, 1]),
+                    ('node', 'reverse_edge', 'node'): (edges[:, 1], edges[:, 0])
+                },
+                num_nodes_dict={'node': num_nodes},
+                idtype=torch.int32
+            )
+
+        else:
+            graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
+            if to_undirected:
+                graph = dgl.to_bidirected(graph)
+            elif reverse_edges:
+                graph = dgl.reverse(graph)
 
         train_batched_graph = dgl.batch([graph for _ in range(train_batch_size)])
         if eval_batch_size is not None and eval_batch_size != train_batch_size:

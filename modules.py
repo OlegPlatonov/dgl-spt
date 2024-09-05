@@ -1,6 +1,7 @@
 from inspect import signature
 import torch
 from torch import nn
+import dgl
 from dgl import ops
 from plr_embeddings import PLREmbeddings
 from utils import _check_dim_and_num_heads_consistency
@@ -55,10 +56,15 @@ class GraphMeanAggregationModule(nn.Module):
         super().__init__()
 
     def forward(self, graph, x):
-        x_aggregated = ops.copy_u_mean(graph, x)
-        x = torch.cat([x, x_aggregated], axis=-1)
+        x_aggregated = [x]
+        for cur_edge_type in graph.etypes:
+            cur_graph = dgl.edge_type_subgraph(graph, [cur_edge_type])
+            cur_x_aggregated = ops.copy_u_mean(cur_graph, x)
+            x_aggregated.append(cur_x_aggregated)
 
-        return x
+        x_aggregated = torch.cat(x_aggregated, axis=-1)
+
+        return x_aggregated
 
 
 class GraphMaxAggregationModule(nn.Module):
@@ -66,74 +72,105 @@ class GraphMaxAggregationModule(nn.Module):
         super().__init__()
 
     def forward(self, graph, x):
-        x_aggregated = ops.copy_u_max(graph, x)
-        x_aggregated[x_aggregated.isinf()] = 0
-        x = torch.cat([x, x_aggregated], axis=-1)
+        x_aggregated = [x]
+        for cur_edge_type in graph.etypes:
+            cur_graph = dgl.edge_type_subgraph(graph, [cur_edge_type])
+            cur_x_aggregated = ops.copy_u_max(cur_graph, x)
+            x_aggregated.append(cur_x_aggregated)
 
-        return x
+        x_aggregated = torch.cat(x_aggregated, axis=-1)
+        x_aggregated[x_aggregated.isinf()] = 0
+
+        return x_aggregated
 
 
 class GraphAttnGATAggregationModule(nn.Module):
-    def __init__(self, dim, num_heads, **kwargs):
+    def __init__(self, dim, num_heads, num_edge_types=1, **kwargs):
         super().__init__()
 
         _check_dim_and_num_heads_consistency(dim=dim, num_heads=num_heads)
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        self.num_edge_types = num_edge_types
 
-        self.attn_linear_u = nn.Linear(in_features=dim, out_features=num_heads)
-        self.attn_linear_v = nn.Linear(in_features=dim, out_features=num_heads, bias=False)
+        self.attn_linear_u = nn.Linear(in_features=dim, out_features=num_heads * num_edge_types)
+        self.attn_linear_v = nn.Linear(in_features=dim, out_features=num_heads * num_edge_types, bias=False)
         self.attn_act = nn.LeakyReLU(negative_slope=0.2)
 
     def forward(self, graph, x):
         attn_scores_u = self.attn_linear_u(x)
         attn_scores_v = self.attn_linear_v(x)
-        attn_scores = ops.u_add_v(graph, attn_scores_u, attn_scores_v)
-        attn_scores = self.attn_act(attn_scores)
-        attn_probs = ops.edge_softmax(graph, attn_scores)
 
+        attn_scores_u = attn_scores_u.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-1)
+        attn_scores_v = attn_scores_v.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-1)
+
+        x_aggregated = [x]
         x = x.reshape(-1, self.head_dim, self.num_heads)
-        x_aggregated = ops.u_mul_e_sum(graph, x, attn_probs)
-        x_aggregated = x_aggregated.reshape(-1, self.dim)
+        for edge_type, cur_attn_scores_u, cur_attn_scores_v in zip(graph.etypes, attn_scores_u, attn_scores_v):
+            cur_graph = dgl.edge_type_subgraph(graph, [edge_type])
 
-        x = torch.cat([x, x_aggregated], axis=-1)
+            cur_attn_scores = ops.u_add_v(cur_graph, cur_attn_scores_u, cur_attn_scores_v)
+            cur_attn_scores = self.attn_act(cur_attn_scores)
+            cur_attn_probs = ops.edge_softmax(cur_graph, cur_attn_scores)
 
-        return x
+            cur_x_aggregated = ops.u_mul_e_sum(cur_graph, x, cur_attn_probs)
+            cur_x_aggregated = cur_x_aggregated.reshape(-1, self.dim)
+
+            x_aggregated.append(cur_x_aggregated)
+
+        x_aggregated = torch.cat(x_aggregated, axis=-1)
+
+        return x_aggregated
 
 
 class GraphAttnTrfAggregationModule(nn.Module):
-    def __init__(self, dim, num_heads, dropout, **kwargs):
+    def __init__(self, dim, num_heads, num_edge_types=1, dropout=0, **kwargs):
         super().__init__()
 
         _check_dim_and_num_heads_consistency(dim=dim, num_heads=num_heads)
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        self.num_edge_types = num_edge_types
         self.attn_scores_multiplier = 1 / torch.tensor(self.head_dim).sqrt()
 
-        self.attn_qkv_linear = nn.Linear(in_features=dim, out_features=dim * 3)
+        self.attn_qkv_linear = nn.Linear(in_features=dim, out_features=dim * num_edge_types * 3)
 
-        self.output_linear = nn.Linear(in_features=dim, out_features=dim)
-        self.dropout = nn.Dropout(p=dropout)
+        self.output_linear_layers = nn.ModuleList(
+            [nn.Linear(in_features=dim, out_features=dim) for _ in range(num_edge_types)]
+        )
+        self.dropout_layers = nn.ModuleList([nn.Dropout(p=dropout) for _ in range(num_edge_types)])
 
     def forward(self, graph, x):
         qkvs = self.attn_qkv_linear(x)
-        qkvs = qkvs.reshape(-1, self.num_heads, self.head_dim * 3)
+        qkvs = qkvs.reshape(-1, self.num_heads * self.num_edge_types, self.head_dim * 3)
         queries, keys, values = qkvs.split(split_size=(self.head_dim, self.head_dim, self.head_dim), dim=-1)
 
-        attn_scores = ops.u_dot_v(graph, keys, queries) * self.attn_scores_multiplier
-        attn_probs = ops.edge_softmax(graph, attn_scores)
+        queries = queries.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-2)
+        keys = keys.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-2)
+        values = values.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-2)
 
-        x_aggregated = ops.u_mul_e_sum(graph, values, attn_probs)
-        x_aggregated = x_aggregated.reshape(-1, self.dim)
+        x_aggregated = [x]
+        for edge_type, cur_queries, cur_keys, cur_values, output_linear, dropout in zip(
+                graph.etypes, queries, keys, values, self.output_linear_layers, self.dropout_layers
+        ):
+            cur_graph = dgl.edge_type_subgraph(graph, [edge_type])
 
-        x_aggregated = self.output_linear(x_aggregated)
-        x_aggregated = self.dropout(x_aggregated)
+            cur_attn_scores = ops.u_dot_v(cur_graph, cur_keys, cur_queries) * self.attn_scores_multiplier
+            cur_attn_probs = ops.edge_softmax(cur_graph, cur_attn_scores)
 
-        x = torch.cat([x, x_aggregated], axis=-1)
+            cur_x_aggregated = ops.u_mul_e_sum(cur_graph, cur_values, cur_attn_probs)
+            cur_x_aggregated = cur_x_aggregated.reshape(-1, self.dim)
 
-        return x
+            cur_x_aggregated = output_linear(cur_x_aggregated)
+            cur_x_aggregated = dropout(cur_x_aggregated)
+
+            x_aggregated.append(cur_x_aggregated)
+
+        x_aggregated = torch.cat(x_aggregated, axis=-1)
+
+        return x_aggregated
 
 
 class RNNSequenceEncoderModule(nn.Module):

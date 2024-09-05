@@ -33,9 +33,18 @@ def get_args():
                         help='Should have the same number of values as seasonal_lookback_periods argument.')
     parser.add_argument('--drop_early_train_timestamps', type=str, default='direct', choices=['all', 'direct', 'none'])
 
-    # Graph preprocessing (use at most one of these arguments).
-    parser.add_argument('--reverse_edges', default=False, action='store_true')
-    parser.add_argument('--to_undirected', default=False, action='store_true')
+    # Only for directed graphs: select which edge directions in the graph will be used.
+    # Use at most one of these three arguments.
+    parser.add_argument('--reverse_edges', default=False, action='store_true',
+                        help='Reverse all edges in the graph.')
+    parser.add_argument('--to_undirected', default=False, action='store_true',
+                        help='Transform the graph to undirected by converting each directed edge into '
+                             'an undirected one.')
+    parser.add_argument('--use_forward_and_reverse_edges_as_different_edge_types', default=False, action='store_true',
+                        help='The graph will be transformed to a heterogeneous graph with two edge types: '
+                             'forward (original) and reverse edges. Graph neighborhood aggregation wiil be run for '
+                             'each edge type separately and its results will be concatenated before being passed '
+                             'to the following MLP module in the model.')
 
     # Target preprocessing.
     parser.add_argument('--target_transform', type=str, default='standard-scaler',
@@ -341,6 +350,8 @@ def main():
         drop_early_train_timestamps=args.drop_early_train_timestamps,
         reverse_edges=args.reverse_edges,
         to_undirected=args.to_undirected,
+        use_forward_and_reverse_edges_as_different_edge_types=\
+            args.use_forward_and_reverse_edges_as_different_edge_types,
         target_transform=args.target_transform,
         transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
         imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
@@ -371,6 +382,7 @@ def main():
             neighborhood_aggregation_name=args.neighborhood_aggregation,
             sequence_encoder_name=args.sequence_encoder,
             normalization_name=args.normalization,
+            num_edge_types=len(dataset.graph.etypes),
             num_residual_blocks=args.num_residual_blocks,
             features_dim=dataset.features_dim,
             hidden_dim=args.hidden_dim,
