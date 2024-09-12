@@ -118,6 +118,10 @@ def get_args():
                         choices=['MeanAggr', 'MaxAggr', 'GCNAggr', 'AttnGATAggr', 'AttnTrfAggr'],
                         help='Graph neighborhood aggregation (aka message passing) function for GNNs. '
                              'Only used if model_class is SingleInputGNN or SequenceInputGNN.')
+    parser.add_argument('--do_not_separate_ego_node_representation', default=False, action='store_true',
+                        help='Use ego node representation in graph neighborhood aggregation as if it is one more '
+                             'neighbor representation instead of treating it separately by concatenating it to '
+                             'aggregated neighbor representations.')
     parser.add_argument('--sequence_encoder', type=str, default='RNN',
                         choices=['RNN', 'Transformer'],
                         help='Timestamp sequence encoder applied before graph neighborhood aggregation. '
@@ -352,6 +356,7 @@ def main():
         to_undirected=args.to_undirected,
         use_forward_and_reverse_edges_as_different_edge_types=\
             args.use_forward_and_reverse_edges_as_different_edge_types,
+        add_self_loops=args.do_not_separate_ego_node_representation,
         target_transform=args.target_transform,
         transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
         imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
@@ -380,6 +385,7 @@ def main():
     for run in range(1, args.num_runs + 1):
         model = Model(
             neighborhood_aggregation_name=args.neighborhood_aggregation,
+            neighborhood_aggregation_sep=not args.do_not_separate_ego_node_representation,
             sequence_encoder_name=args.sequence_encoder,
             normalization_name=args.normalization,
             num_edge_types=len(dataset.graph.etypes),

@@ -52,11 +52,12 @@ class FeedForwardModule(nn.Module):
 
 
 class GraphMeanAggregationModule(nn.Module):
-    def __init__(self, **kwargs):
+    def __init__(self, sep=True, **kwargs):
         super().__init__()
+        self.sep = sep
 
     def forward(self, graph, x):
-        x_aggregated = [x]
+        x_aggregated = [x] if self.sep else []
         for cur_edge_type in graph.etypes:
             cur_graph = dgl.edge_type_subgraph(graph, [cur_edge_type])
             cur_x_aggregated = ops.copy_u_mean(cur_graph, x)
@@ -68,11 +69,12 @@ class GraphMeanAggregationModule(nn.Module):
 
 
 class GraphMaxAggregationModule(nn.Module):
-    def __init__(self, **kwargs):
+    def __init__(self, sep=True, **kwargs):
         super().__init__()
+        self.sep = sep
 
     def forward(self, graph, x):
-        x_aggregated = [x]
+        x_aggregated = [x] if self.sep else []
         for cur_edge_type in graph.etypes:
             cur_graph = dgl.edge_type_subgraph(graph, [cur_edge_type])
             cur_x_aggregated = ops.copy_u_max(cur_graph, x)
@@ -85,11 +87,12 @@ class GraphMaxAggregationModule(nn.Module):
 
 
 class GraphGCNAggregationModule(nn.Module):
-    def __init__(self, **kwargs):
+    def __init__(self, sep=True, **kwargs):
         super().__init__()
+        self.sep = sep
 
     def forward(self, graph, x):
-        x_aggregated = [x]
+        x_aggregated = [x] if self.sep else []
         for cur_edge_type in graph.etypes:
             cur_graph = dgl.edge_type_subgraph(graph, [cur_edge_type])
 
@@ -108,8 +111,9 @@ class GraphGCNAggregationModule(nn.Module):
 
 
 class GraphAttnGATAggregationModule(nn.Module):
-    def __init__(self, dim, num_heads, num_edge_types=1, **kwargs):
+    def __init__(self, dim, num_heads, num_edge_types=1, sep=True, **kwargs):
         super().__init__()
+        self.sep = sep
 
         _check_dim_and_num_heads_consistency(dim=dim, num_heads=num_heads)
         self.dim = dim
@@ -128,7 +132,7 @@ class GraphAttnGATAggregationModule(nn.Module):
         attn_scores_u = attn_scores_u.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-1)
         attn_scores_v = attn_scores_v.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-1)
 
-        x_aggregated = [x]
+        x_aggregated = [x] if self.sep else []
         x = x.reshape(-1, self.head_dim, self.num_heads)
         for edge_type, cur_attn_scores_u, cur_attn_scores_v in zip(graph.etypes, attn_scores_u, attn_scores_v):
             cur_graph = dgl.edge_type_subgraph(graph, [edge_type])
@@ -148,8 +152,9 @@ class GraphAttnGATAggregationModule(nn.Module):
 
 
 class GraphAttnTrfAggregationModule(nn.Module):
-    def __init__(self, dim, num_heads, num_edge_types=1, dropout=0, **kwargs):
+    def __init__(self, dim, num_heads, num_edge_types=1, dropout=0, sep=True, **kwargs):
         super().__init__()
+        self.sep = sep
 
         _check_dim_and_num_heads_consistency(dim=dim, num_heads=num_heads)
         self.dim = dim
@@ -174,7 +179,7 @@ class GraphAttnTrfAggregationModule(nn.Module):
         keys = keys.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-2)
         values = values.split(split_size=[self.num_heads for _ in range(self.num_edge_types)], dim=-2)
 
-        x_aggregated = [x]
+        x_aggregated = [x] if self.sep else []
         for edge_type, cur_queries, cur_keys, cur_values, output_linear, dropout in zip(
                 graph.etypes, queries, keys, values, self.output_linear_layers, self.dropout_layers
         ):
