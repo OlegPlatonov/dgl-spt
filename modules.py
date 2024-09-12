@@ -84,6 +84,29 @@ class GraphMaxAggregationModule(nn.Module):
         return x_aggregated
 
 
+class GraphGCNAggregationModule(nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def forward(self, graph, x):
+        x_aggregated = [x]
+        for cur_edge_type in graph.etypes:
+            cur_graph = dgl.edge_type_subgraph(graph, [cur_edge_type])
+
+            cur_in_degrees = cur_graph.in_degrees().float()
+            cur_out_degrees = cur_graph.out_degrees().float()
+            cur_degree_edge_products = ops.u_mul_v(cur_graph, cur_out_degrees, cur_in_degrees)
+            cur_degree_edge_products[cur_degree_edge_products == 0] = 1
+            cur_norm_coefs = 1 / cur_degree_edge_products.sqrt()
+
+            cur_x_aggregated = ops.u_mul_e_sum(cur_graph, x, cur_norm_coefs)
+            x_aggregated.append(cur_x_aggregated)
+
+        x_aggregated = torch.cat(x_aggregated, axis=-1)
+
+        return x_aggregated
+
+
 class GraphAttnGATAggregationModule(nn.Module):
     def __init__(self, dim, num_heads, num_edge_types=1, **kwargs):
         super().__init__()
@@ -312,6 +335,7 @@ class FeaturesPreparatorForDeepModels(nn.Module):
 NEIGHBORHOOD_AGGREGATION_MODULES = {
     'MeanAggr': GraphMeanAggregationModule,
     'MaxAggr': GraphMaxAggregationModule,
+    'GCNAggr': GraphGCNAggregationModule,
     'AttnGATAggr': GraphAttnGATAggregationModule,
     'AttnTrfAggr': GraphAttnTrfAggregationModule
 }

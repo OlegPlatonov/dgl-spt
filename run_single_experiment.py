@@ -115,7 +115,7 @@ def get_args():
     parser.add_argument('--model_class', type=str, default='SignleInputGNN',
                         choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN'])
     parser.add_argument('--neighborhood_aggregation', type=str, default='MeanAggr',
-                        choices=['MeanAggr', 'MaxAggr', 'AttnGATAggr', 'AttnTrfAggr'],
+                        choices=['MeanAggr', 'MaxAggr', 'GCNAggr', 'AttnGATAggr', 'AttnTrfAggr'],
                         help='Graph neighborhood aggregation (aka message passing) function for GNNs. '
                              'Only used if model_class is SingleInputGNN or SequenceInputGNN.')
     parser.add_argument('--sequence_encoder', type=str, default='RNN',
