@@ -136,6 +136,8 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
         if option_name in STORE_TRUE_ARGS: # this option value is true and it;s passed as true
             if option_value == "True":
                 param_string: str = f"--{option_name}"
+            else:
+                continue
         else:
             param_string = f"--{option_name} {option_value}"
         launch_script_string_container.append(param_string)
