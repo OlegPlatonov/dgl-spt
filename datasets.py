@@ -9,7 +9,10 @@ from sklearn.impute import SimpleImputer
 
 from functools import cache
 
-IN_NIRVANA = os.environ.get("PORTO_NAME") is not None
+try:
+    import nirvana_dl as ndl
+except ImportError:
+    ndl = None
 class NirvanaDatasetWrapper:
     """
     Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays
@@ -21,13 +24,12 @@ class NirvanaDatasetWrapper:
     
     @cache
     def __getitem__(self, array_name: str):
-        array_path = os.path.join(self.root_path, array_name, ".npy")
+        array_path = os.path.join(self.root_path, f"{array_name}.npy")
         
         print(f"Accessing `{array_name}` array at {array_path}")
         array = np.load(array_path, allow_pickle=True)
         
         return array
-
 class Dataset:
     transforms = {
         'none': FunctionTransformer(func=lambda x: x, inverse_func=lambda x: x),
@@ -60,7 +62,7 @@ class Dataset:
             path = f'data/{name.replace("-", "_")}.npz'
 
         print('Preparing data...')
-        data = np.load(path, allow_pickle=True) if IN_NIRVANA else NirvanaDatasetWrapper(root_path="data/")
+        data = NirvanaDatasetWrapper(root_path="data/") if ndl else np.load(path, allow_pickle=True) 
 
         # GET TIME SPLITS
 
@@ -462,6 +464,9 @@ class Dataset:
         self.past_targets_features_dim = past_targets_features_dim
         self.features_dim = features_dim
         self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
+        
+        
+        del data
 
     def get_timestamp_features_as_signle_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
