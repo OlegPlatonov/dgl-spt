@@ -25,7 +25,7 @@ class Dataset:
                  provide_sequnce_inputs=False, direct_lookback_num_steps=48,
                  seasonal_lookback_periods=None, seasonal_lookback_num_steps=None, drop_early_train_timestamps='direct',
                  reverse_edges=False, to_undirected=False, use_forward_and_reverse_edges_as_different_edge_types=False,
-                 target_transform='none', transform_targets_for_each_node_separately=False,
+                 add_self_loops=False, target_transform='none', transform_targets_for_each_node_separately=False,
                  imputation_startegy_for_nan_targets='prev', add_features_for_nan_targets=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
@@ -241,6 +241,10 @@ class Dataset:
                 graph = dgl.to_bidirected(graph)
             elif reverse_edges:
                 graph = dgl.reverse(graph)
+
+        if add_self_loops:
+            for cur_edge_type in graph.etypes:
+                graph = dgl.add_self_loop(graph, etype=cur_edge_type)
 
         train_batched_graph = dgl.batch([graph for _ in range(train_batch_size)])
         if eval_batch_size is not None and eval_batch_size != train_batch_size:

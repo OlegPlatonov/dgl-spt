@@ -153,8 +153,8 @@ class SingleInputGNN(SingleInputModel):
     block. That is, each residual block consists of the following sequence of modules: normalization, graph
     neighborhood aggregation, two-layer MLP.
     """
-    def __init__(self, neighborhood_aggregation_name, normalization_name, num_edge_types, num_residual_blocks,
-                 features_dim, hidden_dim, output_dim, neighborhood_aggr_attn_num_heads, dropout,
+    def __init__(self, neighborhood_aggregation_name, neighborhood_aggregation_sep, normalization_name, num_edge_types,
+                 num_residual_blocks, features_dim, hidden_dim, output_dim, neighborhood_aggr_attn_num_heads, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
                  use_plr_for_num_features, num_features_mask, plr_num_features_frequencies_dim,
@@ -202,8 +202,10 @@ class SingleInputGNN(SingleInputModel):
                 modules=[
                     NormalizationModule(hidden_dim),
                     NeighborhoodAggregationModule(dim=hidden_dim, num_heads=neighborhood_aggr_attn_num_heads,
-                                                  num_edge_types=num_edge_types, dropout=dropout),
-                    FeedForwardModule(dim=hidden_dim, num_inputs=num_edge_types + 1, dropout=dropout)
+                                                  num_edge_types=num_edge_types, dropout=dropout,
+                                                  sep=neighborhood_aggregation_sep),
+                    FeedForwardModule(dim=hidden_dim, num_inputs=num_edge_types + neighborhood_aggregation_sep,
+                                      dropout=dropout)
                 ]
             )
 
@@ -235,10 +237,10 @@ class SequenceInputGNN(SequenceInputModel):
     normalization, sequence encoder, graph neighborhood aggregation, two-layer MLP. Also has one sequence encoder
     module before all residual blocks.
     """
-    def __init__(self, sequence_encoder_name, neighborhood_aggregation_name, normalization_name, num_edge_types,
-                 num_residual_blocks, features_dim, hidden_dim, output_dim, neighborhood_aggr_attn_num_heads,
-                 seq_encoder_num_layers, seq_encoder_rnn_type_name, seq_encoder_attn_num_heads,
-                 seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
+    def __init__(self, sequence_encoder_name, neighborhood_aggregation_name, neighborhood_aggregation_sep,
+                 normalization_name, num_edge_types, num_residual_blocks, features_dim, hidden_dim, output_dim,
+                 neighborhood_aggr_attn_num_heads, seq_encoder_num_layers, seq_encoder_rnn_type_name,
+                 seq_encoder_attn_num_heads, seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
                  use_plr_for_num_features, num_features_mask, plr_num_features_frequencies_dim,
@@ -296,8 +298,10 @@ class SequenceInputGNN(SequenceInputModel):
                                           bidir_attn=seq_encoder_bidir_attn, seq_len=seq_encoder_seq_len,
                                           dropout=dropout),
                     NeighborhoodAggregationModule(dim=hidden_dim, num_heads=neighborhood_aggr_attn_num_heads,
-                                                  num_edge_types=num_edge_types, dropout=dropout),
-                    FeedForwardModule(dim=hidden_dim, num_inputs=num_edge_types + 1, dropout=dropout)
+                                                  num_edge_types=num_edge_types, dropout=dropout,
+                                                  sep=neighborhood_aggregation_sep),
+                    FeedForwardModule(dim=hidden_dim, num_inputs=num_edge_types + neighborhood_aggregation_sep,
+                                      dropout=dropout)
                 ]
             )
 
