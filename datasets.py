@@ -183,7 +183,7 @@ class Dataset:
 
                 # breakpoint()
                 if np.isnan(features[:, :, num_features_mask]).any():
-                    imputer = SimpleImputer(strategy=imputation_strategy_for_num_features, keep_empty_features=True, verbose=20).fit(num_features)
+                    imputer = SimpleImputer(strategy=imputation_strategy_for_num_features, keep_empty_features=True).fit(num_features)
                     num_features = imputer.transform(num_features)
                     # some features could be removed by Imputer
                     num_features_orig_shape = (num_features_orig_shape[0], num_features_orig_shape[1], num_features.shape[-1])
