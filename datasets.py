@@ -130,10 +130,13 @@ class Dataset:
         num_feature_names_set = set(data['num_feature_names'])
         bin_feature_names_set = set(data['bin_feature_names'])
         cat_feature_names_set = set(data['cat_feature_names'])
+        
+        
 
         features_groups = [temporal_features, spatial_features, spatiotemporal_features]
         feature_names_groups = [temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names]
         num_features_masks_by_group = [None, None, None]
+        
         for features_group_idx, (features, feature_names) in enumerate(zip(features_groups, feature_names_groups)):
             num_features_mask = np.zeros(features.shape[2], dtype=bool)
             cat_features_mask = np.zeros(features.shape[2], dtype=bool)
@@ -149,15 +152,19 @@ class Dataset:
                 num_features_orig_shape = num_features.shape
                 num_features = num_features.reshape(-1, num_features.shape[2])
 
+                # breakpoint()
                 if np.isnan(features[:, :, num_features_mask]).any():
-                    imputer = SimpleImputer(strategy=imputation_strategy_for_num_features).fit(num_features)
+                    imputer = SimpleImputer(strategy=imputation_strategy_for_num_features, keep_empty_features=True, verbose=20).fit(num_features)
                     num_features = imputer.transform(num_features)
-
+                    # some features could be removed by Imputer
+                    num_features_orig_shape = (num_features_orig_shape[0], num_features_orig_shape[1], num_features.shape[-1])
+                # breakpoint()
                 num_features = self.transforms[num_features_transform].fit_transform(num_features)
 
                 num_features = num_features.reshape(*num_features_orig_shape)
 
                 # Put transformed numerical features back into features array.
+                # breakpoint()
                 slow_idx = 0
                 for fast_idx in range(features.shape[2]):
                     if num_features_mask[fast_idx]:
