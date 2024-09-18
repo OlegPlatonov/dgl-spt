@@ -1,15 +1,16 @@
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Tuple
 import sys
+from ast import literal_eval
 
-
+from itertools import product
 try:
     import nirvana_dl as ndl
-    params = ndl.params()
+    PARAMS = ndl.params()
 
 except ImportError:
     ndl = None
-    params = {
+    PARAMS = {
         "name": "nirvana_local_test",
         "save_dir": "experiments",
         "dataset": "pems-bay",
@@ -64,18 +65,18 @@ except ImportError:
         "weight_decay": 0,
         "lr": 0.0003,
         "num_epochs": 10,
-        "train_batch_size": 10,
+        "train_batch_size": [1, 2, 3, 4, 5],
         "eval_batch_size": None,
         "num_accumulation_steps": 1,
         "eval_every": 1000,
         "num_runs": 2,
         "device": "cuda:0",
         "amp": False,
-        "num_threads": 32,
+        "num_threads": [32, 123123123123123123],
     }
     
-    for key in params:
-        params[key] = str(params[key])
+    for key in PARAMS:
+        PARAMS[key] = str(PARAMS[key])
 
 STORE_TRUE_ARGS = {
     "use_deepwalk_node_embeddings",
@@ -102,19 +103,75 @@ STORE_TRUE_ARGS = {
 }
 
 
-launch_script_string_container: List[List[str]] = ["python", "run_single_experiment.py"]
+def filter_params_on_single_and_multiple_options():
+    params_with_multiple_options_and_values: Dict[str, List[str]] = {} # those which can be casted to lists of values
+    params_with_single_options_and_values: Dict[str, str]= {} # those which can be casted to lists of values
 
-for option_name, option_value in params.items():
-    print(f"Option: {repr(option_name)}, param: {repr(option_value)}", file=sys.stderr)
-    if (option_value == "None" or  option_value is None):
-        continue
+    def _check_if_iterable(value):
+        try:
+            s = literal_eval(value)
+            if isinstance(s, (list, tuple, set)):
+                return True
+            return False
+        except (ValueError, SyntaxError):
+            return False
     
-    if option_name in STORE_TRUE_ARGS: # this option value is true and it;s passed as true
-        if option_value == "True":
-            param_string: str = f"--{option_name}"
-    else:
-        param_string = f"--{option_name} {option_value}"
-    launch_script_string_container.append(param_string)
+    for param, value in PARAMS.items():
+        if _check_if_iterable(value=value):
+            params_with_multiple_options_and_values[param] = [str(x) for x in literal_eval(value)]
+        else:
+            params_with_single_options_and_values[param] = value
+    
+    return params_with_single_options_and_values, params_with_multiple_options_and_values
 
-launch_script_string: str = " ".join(launch_script_string_container)
-print(launch_script_string)
+
+def create_one_run(params_flattened_one_instance: Dict[str, str]):
+    launch_script_string_container: List[List[str]] = ["python", "run_single_experiment.py"]
+
+    for option_name, option_value in params_flattened_one_instance.items():
+        print(f"Option: {repr(option_name)}, param: {repr(option_value)}", file=sys.stderr)
+        if (option_value == "None" or  option_value is None):
+            continue
+        
+        if option_name in STORE_TRUE_ARGS: # this option value is true and it;s passed as true
+            if option_value == "True":
+                param_string: str = f"--{option_name}"
+        else:
+            param_string = f"--{option_name} {option_value}"
+        launch_script_string_container.append(param_string)
+
+    launch_script_string: str = " ".join(launch_script_string_container)
+    
+    return launch_script_string
+
+if __name__ == '__main__':
+    single_choice_params, multi_choice_params = filter_params_on_single_and_multiple_options()
+    
+    if len(multi_choice_params) > 0:
+        multi_choice_containers_per_param: List[List[Tuple[str, str]]] = []
+        
+        for param, values in multi_choice_params.items():
+            multi_choice_containers_per_param.append(
+                [(param, v) for v in values]
+            )
+        
+        print(f"{multi_choice_containers_per_param=}", file=sys.stderr)
+        multi_choice_params_product = product(*multi_choice_containers_per_param)
+        
+
+        launch_strings: List[str] = []
+        
+        
+        for params_choice in multi_choice_params_product:
+            print(f"{params_choice}", file=sys.stderr)
+            parameters = {p: v for p, v in params_choice}
+            parameters.update(single_choice_params)
+            
+            one_run_string = create_one_run(parameters)
+            
+            launch_strings.append(one_run_string)
+
+        
+        print("\n\n".join(launch_strings))
+    else:
+        print(create_one_run(single_choice_params))
