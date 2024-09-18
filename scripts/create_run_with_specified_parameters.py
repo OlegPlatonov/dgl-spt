@@ -114,7 +114,7 @@ def filter_params_on_single_and_multiple_options():
                 return True
             return False
         except (ValueError, SyntaxError):
-            return False
+            return isinstance(value, (list, tuple, set))
     
     for param, value in PARAMS.items():
         if _check_if_iterable(value=value):
