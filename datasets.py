@@ -22,14 +22,21 @@ class NirvanaDatasetWrapper:
     def __init__(self, root_path: str):
         self.root_path = root_path
     
+    def get_array_path(self, array_name: str):
+        return os.path.join(self.root_path, f"{array_name}.npy")
+    
     @cache
     def __getitem__(self, array_name: str):
-        array_path = os.path.join(self.root_path, f"{array_name}.npy")
+        array_path = self.get_array_path(array_name)
         
         print(f"Accessing `{array_name}` array at {array_path}")
         array = np.load(array_path, allow_pickle=True)
         
         return array
+    
+    def __contains__(self, array_name: str):
+        return os.path.exists(self.get_array_path(array_name))
+        
 class Dataset:
     transforms = {
         'none': FunctionTransformer(func=lambda x: x, inverse_func=lambda x: x),
