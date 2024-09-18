@@ -109,7 +109,7 @@ def filter_params_on_single_and_multiple_options():
 
     def _check_if_iterable(value):
         try:
-            s = literal_eval(value)
+            s = literal_eval(repr(value))
             if isinstance(s, (list, tuple, set)):
                 return True
             return False
@@ -118,7 +118,7 @@ def filter_params_on_single_and_multiple_options():
     
     for param, value in PARAMS.items():
         if _check_if_iterable(value=value):
-            params_with_multiple_options_and_values[param] = [str(x) for x in literal_eval(value)]
+            params_with_multiple_options_and_values[param] = [str(x) for x in literal_eval(repr(value))]
         else:
             params_with_single_options_and_values[param] = value
     
