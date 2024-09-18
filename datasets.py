@@ -7,6 +7,26 @@ from sklearn.preprocessing import (FunctionTransformer, StandardScaler, MinMaxSc
                                    QuantileTransformer, OneHotEncoder)
 from sklearn.impute import SimpleImputer
 
+from functools import cache
+
+IN_NIRVANA = os.environ.get("PORTO_NAME") is not None
+class NirvanaDatasetWrapper:
+    """
+    Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays
+    
+    """
+    
+    def __init__(self, root_path: str):
+        self.root_path = root_path
+    
+    @cache
+    def __getitem__(self, array_name: str):
+        array_path = os.path.join(self.root_path, array_name, ".npy")
+        
+        print(f"Accessing `{array_name}` array at {array_path}")
+        array = np.load(array_path, allow_pickle=True)
+        
+        return array
 
 class Dataset:
     transforms = {
@@ -40,7 +60,7 @@ class Dataset:
             path = f'data/{name.replace("-", "_")}.npz'
 
         print('Preparing data...')
-        data = np.load(path, allow_pickle=True)
+        data = np.load(path, allow_pickle=True) if IN_NIRVANA else NirvanaDatasetWrapper(root_path="data/")
 
         # GET TIME SPLITS
 
