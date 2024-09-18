@@ -5,7 +5,6 @@ __pycache__
 
 /data/*
 /experiments/*
-/scripts/*
 /notebooks/*
 
 !.gitkeep
