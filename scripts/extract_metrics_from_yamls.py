@@ -48,7 +48,7 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             pulsar_metric_dict = dict(
                 value=metric_value,
                 name=metric_for_pulsar_corresponding_name,
-                tags=[TAG],
+                **args,
             )
 
             results.append(pulsar_metric_dict)
