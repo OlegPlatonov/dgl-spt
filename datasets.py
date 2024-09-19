@@ -25,7 +25,7 @@ class NirvanaDatasetWrapper:
     def get_array_path(self, array_name: str):
         return os.path.join(self.root_path, f"{array_name}.npy")
     
-    @cache
+    # @cache
     def __getitem__(self, array_name: str):
         array_path = self.get_array_path(array_name)
         
