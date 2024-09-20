@@ -15,6 +15,8 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--name', type=str, required=True, help='Experiment name.')
+    parser.add_argument('--in_nirvana', default=False, action='store_true', help='Launch in nirvana flag')
+
     parser.add_argument('--save_dir', type=str, default='experiments', help='Base directory for saving information.')
     parser.add_argument('--dataset', type=str, default='pems-bay',
                         help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
@@ -344,6 +346,7 @@ def main():
     Model = ModelRegistry.get_model_class(args.model_class)
 
     dataset = Dataset(
+        in_nirvana=args.in_nirvana,
         name_or_path=args.dataset,
         prediction_horizon=args.prediction_horizon,
         only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,

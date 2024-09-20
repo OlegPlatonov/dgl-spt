@@ -9,10 +9,10 @@ from sklearn.impute import SimpleImputer
 
 from functools import cache
 
-try:
-    import nirvana_dl as ndl
-except ImportError:
-    ndl = None
+# try:
+#     import nirvana_dl as ndl
+# except ImportError:
+#     ndl = None
 class NirvanaDatasetWrapper:
     """
     Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays
@@ -60,7 +60,8 @@ class Dataset:
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
-                 plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None, device='cpu'):
+                 plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None, device='cpu',
+                 in_nirvana=False):
         if name_or_path.endswith('.npz'):
             name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
             path = name_or_path
@@ -69,7 +70,7 @@ class Dataset:
             path = f'data/{name.replace("-", "_")}.npz'
 
         print('Preparing data...')
-        data = NirvanaDatasetWrapper(root_path="data/") if ndl else np.load(path, allow_pickle=True) 
+        data = NirvanaDatasetWrapper(root_path="data/") if in_nirvana else np.load(path, allow_pickle=True)        
 
         # GET TIME SPLITS
 

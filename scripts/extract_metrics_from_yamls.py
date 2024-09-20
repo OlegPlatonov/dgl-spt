@@ -35,15 +35,19 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
 
 
         metric_field_to_pulsar_unified = {
-            f'val {metric_name} mean': f"val_metric_mean_{TAG}",
-            f'val {metric_name} std': f"val_metric_std_{TAG}",
-            f'test {metric_name} mean': f"test_metric_mean_{TAG}",
-            f'test {metric_name} std': f"test_metric_std_{TAG}",
+            f'val {metric_name} mean': "val_metric_mean",
+            f'val {metric_name} std': "val_metric_std",
+            f'test {metric_name} mean': "test_metric_mean",
+            f'test {metric_name} std': "test_metric_std",
         }
+        
+        # metrics_dict_for_run = args
 
         for metric_in_script, metric_for_pulsar_corresponding_name in sorted(metric_field_to_pulsar_unified.items()):
             metric_value = metrics[metric_in_script]
             metric_value = metric_value if not np.isnan(metric_value) else -1.0
+            
+            # metrics_dict_for_run[metric_for_pulsar_corresponding_name] = v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v vv v vvvvv v vv vv v v 
             
             pulsar_metric_dict = dict(
                 value=metric_value,

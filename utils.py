@@ -18,6 +18,7 @@ class Logger:
         self.best_epochs = []
         self.num_runs = args.num_runs
         self.cur_run = None
+        self.in_nirvana: bool = args.in_nirvana
 
         print(f'Results will be saved to {self.save_dir}.')
         with open(os.path.join(self.save_dir, 'args.yaml'), 'w') as file:
