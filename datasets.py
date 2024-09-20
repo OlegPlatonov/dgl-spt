@@ -18,7 +18,6 @@ class NirvanaDatasetWrapper:
     Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays
     
     """
-    
     def __init__(self, root_path: str):
         self.root_path = root_path
     

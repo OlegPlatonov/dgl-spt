@@ -100,6 +100,7 @@ STORE_TRUE_ARGS = {
     "use_plr_for_past_targets",
     "do_not_use_spatial_features",
     "use_plr_for_num_features",
+    "in_nirvana"
 }
 
 
