@@ -1,4 +1,5 @@
 import os
+from functools import cache
 import numpy as np
 import pandas as pd
 import torch
@@ -7,16 +8,15 @@ from sklearn.preprocessing import (FunctionTransformer, StandardScaler, MinMaxSc
                                    QuantileTransformer, OneHotEncoder)
 from sklearn.impute import SimpleImputer
 
-from functools import cache
-
 # try:
 #     import nirvana_dl as ndl
 # except ImportError:
 #     ndl = None
+
+
 class NirvanaDatasetWrapper:
     """
-    Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays
-    
+    Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays.
     """
     def __init__(self, root_path: str):
         self.root_path = root_path
@@ -35,7 +35,8 @@ class NirvanaDatasetWrapper:
     
     def __contains__(self, array_name: str):
         return os.path.exists(self.get_array_path(array_name))
-        
+
+
 class Dataset:
     transforms = {
         'none': FunctionTransformer(func=lambda x: x, inverse_func=lambda x: x),
@@ -159,13 +160,10 @@ class Dataset:
         num_feature_names_set = set(data['num_feature_names'])
         bin_feature_names_set = set(data['bin_feature_names'])
         cat_feature_names_set = set(data['cat_feature_names'])
-        
-        
 
         features_groups = [temporal_features, spatial_features, spatiotemporal_features]
         feature_names_groups = [temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names]
         num_features_masks_by_group = [None, None, None]
-        
         for features_group_idx, (features, feature_names) in enumerate(zip(features_groups, feature_names_groups)):
             num_features_mask = np.zeros(features.shape[2], dtype=bool)
             cat_features_mask = np.zeros(features.shape[2], dtype=bool)
@@ -471,8 +469,7 @@ class Dataset:
         self.past_targets_features_dim = past_targets_features_dim
         self.features_dim = features_dim
         self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
-        
-        
+
         del data
 
     def get_timestamp_features_as_signle_input(self, timestamp):

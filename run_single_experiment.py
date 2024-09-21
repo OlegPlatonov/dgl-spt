@@ -15,8 +15,6 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--name', type=str, required=True, help='Experiment name.')
-    parser.add_argument('--in_nirvana', default=False, action='store_true', help='Launch in nirvana flag')
-
     parser.add_argument('--save_dir', type=str, default='experiments', help='Base directory for saving information.')
     parser.add_argument('--dataset', type=str, default='pems-bay',
                         help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
@@ -181,6 +179,7 @@ def get_args():
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--amp', default=False, action='store_true')
     parser.add_argument('--num_threads', type=int, default=32)
+    parser.add_argument('--in_nirvana', default=False, action='store_true', help='Launch in Nirvana.')
 
     args = parser.parse_args()
 
@@ -346,7 +345,6 @@ def main():
     Model = ModelRegistry.get_model_class(args.model_class)
 
     dataset = Dataset(
-        in_nirvana=args.in_nirvana,
         name_or_path=args.dataset,
         prediction_horizon=args.prediction_horizon,
         only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,
@@ -373,7 +371,8 @@ def main():
         num_features_transform=args.numerical_features_transform,
         train_batch_size=args.train_batch_size,
         eval_batch_size=args.eval_batch_size,
-        device=args.device
+        device=args.device,
+        in_nirvana=args.in_nirvana
     )
 
     if args.metric == 'RMSE':
