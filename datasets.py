@@ -129,7 +129,7 @@ class Dataset:
 
         # Impute NaNs in targets.
         if imputation_startegy_for_nan_targets_for_features == 'prev':
-            if targets_nan_mask[all_train_targets_timestamps].all(axis=0).any(axis=1):
+            if targets_nan_mask[all_train_targets_timestamps].all(axis=0).any():
                 raise RuntimeError(
                     'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
                     'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
