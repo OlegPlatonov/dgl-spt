@@ -197,13 +197,17 @@ class Dataset:
                 elif feature_name in cat_feature_names_set:
                     cat_features_mask[i] = True
 
-            # Impute NaNs in numerical features and transform numerical features.
+            # Transform numerical features and impute NaNs in numerical features.
             if num_features_mask.any():
                 num_features = features[:, :, num_features_mask]
                 num_features_orig_shape = num_features.shape
                 num_features = num_features.reshape(-1, num_features.shape[2])
 
+                # Transform numerical features.
+                num_features = self.transforms[num_features_transform].fit_transform(num_features)
+
                 # breakpoint()
+                # Impute NaNs in numerical features.
                 if np.isnan(features[:, :, num_features_mask]).any():
                     imputer = SimpleImputer(strategy=imputation_strategy_for_num_features, keep_empty_features=True)
                     imputer.fit(num_features)
@@ -213,7 +217,6 @@ class Dataset:
                         num_features_orig_shape[0], num_features_orig_shape[1], num_features.shape[-1]
                     )
                 # breakpoint()
-                num_features = self.transforms[num_features_transform].fit_transform(num_features)
 
                 num_features = num_features.reshape(*num_features_orig_shape)
 
