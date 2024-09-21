@@ -311,7 +311,7 @@ class Dataset:
                 (seasonal_lookback_periods is not None or seasonal_lookback_num_steps is not None)):
             raise ValueError(
                 'Seasonal lookback is not meant to be used with sequence input, as sequential timestamps are required '
-                'for sequence input to a model. Either set sequence input to False and use a signle input model or '
+                'for sequence input to a model. Either set sequence input to False and use a single input model or '
                 'disable seasonal lookback by setting seasonal_lookback_periods and seasonal_lookback_num_steps '
                 'arguments to None.'
             )
@@ -500,7 +500,7 @@ class Dataset:
 
         del data
 
-    def get_timestamp_features_as_signle_input(self, timestamp):
+    def get_timestamp_features_as_single_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
@@ -549,7 +549,7 @@ class Dataset:
         if self.provide_sequence_inputs:
             return self.get_timestamp_features_as_sequence_input(timestamp)
         else:
-            return self.get_timestamp_features_as_signle_input(timestamp)
+            return self.get_timestamp_features_as_single_input(timestamp)
 
     def get_timestamp_targets(self, timestamp):
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
