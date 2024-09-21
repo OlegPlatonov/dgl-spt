@@ -14,15 +14,13 @@ from sklearn.impute import SimpleImputer
 #     ndl = None
 
 
-class NirvanaDatasetWrapper:
-    """
-    Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays.
-    """
+class NirvanaNpzDataWrapper:
+    """Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays."""
     def __init__(self, root_path: str):
         self.root_path = root_path
     
     def get_array_path(self, array_name: str):
-        return os.path.join(self.root_path, f"{array_name}.npy")
+        return os.path.join(self.root_path, f'{array_name}.npy')
     
     # @cache
     def __getitem__(self, array_name: str):
@@ -73,7 +71,7 @@ class Dataset:
             path = f'data/{name.replace("-", "_")}.npz'
 
         print('Preparing data...')
-        data = NirvanaDatasetWrapper(root_path="data/") if nirvana else np.load(path, allow_pickle=True)
+        data = NirvanaNpzDataWrapper(root_path='data') if nirvana else np.load(path, allow_pickle=True)
 
         # GET TIME SPLITS
 
