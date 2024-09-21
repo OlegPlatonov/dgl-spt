@@ -64,8 +64,7 @@ class Dataset:
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  num_features_transform='none', imputation_strategy_for_num_features='most_frequent',
-                 plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None,
-                 device='cpu', in_nirvana=False):
+                 train_batch_size=1, eval_batch_size=None, device='cpu', in_nirvana=False):
         if name_or_path.endswith('.npz'):
             name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
             path = name_or_path
@@ -505,7 +504,6 @@ class Dataset:
         self.past_timestamp_shifts_for_features = torch.from_numpy(past_timestamp_shifts_for_features)
 
         self.add_indicators_of_nan_targets_to_features = add_indicators_of_nan_targets_to_features
-        self.plr_apply_to_past_targets = plr_apply_to_past_targets
 
         self.targets_dim = 1 if only_predict_at_end_of_horizon else prediction_horizon
         self.past_targets_features_dim = past_targets_features_dim
