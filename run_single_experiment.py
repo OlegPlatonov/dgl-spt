@@ -47,7 +47,7 @@ def get_args():
                              'to the following MLP module in the model.')
 
     # Target preprocessing.
-    parser.add_argument('--target_transform', type=str, default='standard-scaler',
+    parser.add_argument('--targets_transform', type=str, default='standard-scaler',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
@@ -358,7 +358,7 @@ def main():
         use_forward_and_reverse_edges_as_different_edge_types=\
             args.use_forward_and_reverse_edges_as_different_edge_types,
         add_self_loops=args.do_not_separate_ego_node_representation,
-        target_transform=args.target_transform,
+        targets_transform=args.targets_transform,
         transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
         imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
         add_features_for_nan_targets=args.add_features_for_nan_targets,

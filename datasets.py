@@ -54,7 +54,7 @@ class Dataset:
                  provide_sequnce_inputs=False, direct_lookback_num_steps=48,
                  seasonal_lookback_periods=None, seasonal_lookback_num_steps=None, drop_early_train_timestamps='direct',
                  reverse_edges=False, to_undirected=False, use_forward_and_reverse_edges_as_different_edge_types=False,
-                 add_self_loops=False, target_transform='none', transform_targets_for_each_node_separately=False,
+                 add_self_loops=False, targets_transform='none', transform_targets_for_each_node_separately=False,
                  imputation_startegy_for_nan_targets='prev', add_features_for_nan_targets=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
@@ -113,7 +113,7 @@ class Dataset:
 
         # Transform targets for training, but keep original targets for computing metrics.
         targets_orig = targets.copy()
-        targets_transform = self.transforms[target_transform]
+        targets_transform = self.transforms[targets_transform]
         if transform_targets_for_each_node_separately:
             targets_transform.fit(targets[all_train_targets_timestamps])
             targets = targets_transform.transform(targets)
