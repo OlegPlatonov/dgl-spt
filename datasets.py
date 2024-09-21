@@ -128,21 +128,16 @@ class Dataset:
                 )
 
             # First, impute NaN targets with forward fill.
-            targets_df = pd.DataFrame(targets)
             past_targets_as_features_df = pd.DataFrame(past_targets_as_features)
-
-            targets_df.ffill(axis=0, inplace=True)
             past_targets_as_features_df.ffill(axis=0, inplace=True)
 
             # If some nodes have NaN targets starting from the very beginning of the time series, these NaN values are
             # still left unimputed after forward fill. So, we now apply backward fill to them. Note that we have
             # already verified that there are at least some train target values that are not NaN for each node, and
             # thus it is guaranteed that this will not lead to future targets leakage from val and test timestamps.
-            if np.isnan(targets_df.values).any():
-                targets_df.bfill(axis=0, inplace=True)
+            if np.isnan(past_targets_as_features_df.values).any():
                 past_targets_as_features_df.bfill(axis=0, inplace=True)
 
-            targets = targets_df.values
             past_targets_as_features = past_targets_as_features_df.values
 
         elif imputation_startegy_for_nan_targets == 'zero':
