@@ -120,22 +120,29 @@ class Dataset:
 
         # Impute NaNs in targets.
         if imputation_startegy_for_nan_targets == 'prev':
-            targets_df = pd.DataFrame(targets)
-            targets_df.ffill(axis=0, inplace=True)
+            if targets_nan_mask[all_train_targets_timestamps].all(axis=0).any(axis=1):
+                raise RuntimeError(
+                    'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
+                    'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
+                    'nodes) or set imputation_startegy_for_nan_targets argument to "zero".'
+                )
 
+            # First, impute NaN targets with forward fill.
+            targets_df = pd.DataFrame(targets)
             past_targets_as_features_df = pd.DataFrame(past_targets_as_features)
+
+            targets_df.ffill(axis=0, inplace=True)
             past_targets_as_features_df.ffill(axis=0, inplace=True)
 
-            if (np.isnan(targets_df.values[all_val_targets_timestamps]).any() or
-                    np.isnan(targets_df.values[all_test_targets_timestamps]).any()):
-                raise RuntimeError('There are NaN values left in val or test targets after ffill. '
-                                   'Applying bfill to them will lead to future information leakage in evaluation. '
-                                   'Modify the dataset or set imputation_startegy_for_nan_targets argument to "zero".')
+            # If some nodes have NaN targets starting from the very beginning of the time series, these NaN values are
+            # still left unimputed after forward fill. So, we now apply backward fill to them. Note that we have
+            # already verified that there are at least some train target values that are not NaN for each node, and
+            # thus it is guaranteed that this will not lead to future targets leakage from val and test timestamps.
+            if np.isnan(targets_df.values).any():
+                targets_df.bfill(axis=0, inplace=True)
+                past_targets_as_features_df.bfill(axis=0, inplace=True)
 
-            targets_df.bfill(axis=0, inplace=True)
             targets = targets_df.values
-
-            past_targets_as_features_df.bfill(axis=0, inplace=True)
             past_targets_as_features = past_targets_as_features_df.values
 
         elif imputation_startegy_for_nan_targets == 'zero':
