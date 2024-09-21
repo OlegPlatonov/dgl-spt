@@ -11,6 +11,7 @@ class Logger:
             dataset_name = args.dataset
 
         self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset_name=dataset_name, experiment_name=args.name)
+        self.nirvana = args.nirvana
         self.metric = args.metric
         self.val_metrics = []
         self.test_metrics = []
@@ -18,7 +19,6 @@ class Logger:
         self.best_epochs = []
         self.num_runs = args.num_runs
         self.cur_run = None
-        self.in_nirvana: bool = args.in_nirvana
 
         print(f'Results will be saved to {self.save_dir}.')
         with open(os.path.join(self.save_dir, 'args.yaml'), 'w') as file:

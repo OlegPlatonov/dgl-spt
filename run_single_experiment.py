@@ -195,7 +195,8 @@ def get_args():
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--amp', default=False, action='store_true')
     parser.add_argument('--num_threads', type=int, default=32)
-    parser.add_argument('--nirvana', default=False, action='store_true', help='Launch in Nirvana.')
+    parser.add_argument('--nirvana', default=False, action='store_true',
+                        help='Indicates that experiment is being run in Nirvana.')
 
     args = parser.parse_args()
 
