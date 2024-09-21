@@ -147,6 +147,7 @@ class Dataset:
 
         elif imputation_startegy_for_nan_targets == 'zero':
             targets[targets_nan_mask] = 0
+            past_targets_as_features[targets_nan_mask] = 0
 
         else:
             raise ValueError(f'Unsupported value for imputation_strategy_for_nan_targets: '
