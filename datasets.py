@@ -459,6 +459,7 @@ class Dataset:
         self.targets_for_loss = torch.from_numpy(targets_for_loss)
         self.targets_for_features = torch.from_numpy(targets_for_features)
         self.targets_nan_mask = torch.from_numpy(targets_nan_mask)
+        self.add_indicators_of_nan_targets_to_features = add_indicators_of_nan_targets_to_features
         self.targets_for_loss_transform = targets_for_loss_transform
         self.transform_targets_for_loss_for_each_node_separately = transform_targets_for_loss_for_each_node_separately
 
@@ -502,8 +503,6 @@ class Dataset:
 
         self.future_timestamp_shifts_for_prediction = torch.from_numpy(future_timestamp_shifts_for_prediction)
         self.past_timestamp_shifts_for_features = torch.from_numpy(past_timestamp_shifts_for_features)
-
-        self.add_indicators_of_nan_targets_to_features = add_indicators_of_nan_targets_to_features
 
         self.targets_dim = 1 if only_predict_at_end_of_horizon else prediction_horizon
         self.past_targets_features_dim = past_targets_features_dim
