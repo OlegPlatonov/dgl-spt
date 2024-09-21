@@ -90,6 +90,16 @@ class Dataset:
 
         targets_nan_mask = np.isnan(targets)
 
+        # Transform targets for training, but keep original targets for computing metrics.
+        targets_orig = targets.copy()
+        targets_transform = self.transforms[targets_transform]
+        if transform_targets_for_each_node_separately:
+            targets_transform.fit(targets[all_train_targets_timestamps])
+            targets = targets_transform.transform(targets)
+        else:
+            targets_transform.fit(targets[all_train_targets_timestamps].reshape(-1, 1))
+            targets = targets_transform.transform(targets.reshape(-1, 1)).reshape(num_timestamps, num_nodes)
+
         # Impute NaNs in targets.
         if imputation_startegy_for_nan_targets == 'prev':
             targets_df = pd.DataFrame(targets)
@@ -110,16 +120,6 @@ class Dataset:
         else:
             raise ValueError(f'Unsupported value for imputation_strategy_for_nan_targets: '
                              f'{imputation_startegy_for_nan_targets}.')
-
-        # Transform targets for training, but keep original targets for computing metrics.
-        targets_orig = targets.copy()
-        targets_transform = self.transforms[targets_transform]
-        if transform_targets_for_each_node_separately:
-            targets_transform.fit(targets[all_train_targets_timestamps])
-            targets = targets_transform.transform(targets)
-        else:
-            targets_transform.fit(targets[all_train_targets_timestamps].reshape(-1, 1))
-            targets = targets_transform.transform(targets.reshape(-1, 1)).reshape(num_timestamps, num_nodes)
 
         # PREPARE FEATURES
 
