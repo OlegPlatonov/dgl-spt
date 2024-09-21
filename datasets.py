@@ -52,16 +52,18 @@ class Dataset:
 
     def __init__(self, name_or_path, prediction_horizon=12, only_predict_at_end_of_horizon=False,
                  provide_sequnce_inputs=False, direct_lookback_num_steps=48,
-                 seasonal_lookback_periods=None, seasonal_lookback_num_steps=None, drop_early_train_timestamps='direct',
+                 seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
+                 drop_early_train_timestamps='direct',
                  reverse_edges=False, to_undirected=False, use_forward_and_reverse_edges_as_different_edge_types=False,
-                 add_self_loops=False, targets_transform='none', transform_targets_for_each_node_separately=False,
-                 past_targets_as_features_transform='none',
-                 transform_past_targets_as_features_for_each_node_separately=False,
-                 imputation_startegy_for_nan_targets='prev', add_features_for_nan_targets=False,
+                 add_self_loops=False,
+                 targets_for_loss_transform='none', transform_targets_for_loss_for_each_node_separately=False,
+                 targets_for_features_transform='none', transform_targets_for_features_for_each_node_separately=False,
+                 imputation_startegy_for_nan_targets_for_features='prev',
+                 add_indicators_of_nan_targets_to_features=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
-                 imputation_strategy_for_num_features='most_frequent', num_features_transform='none',
+                 num_features_transform='none', imputation_strategy_for_num_features='most_frequent',
                  plr_apply_to_past_targets=False, train_batch_size=1, eval_batch_size=None,
                  device='cpu', in_nirvana=False):
         if name_or_path.endswith('.npz'):
@@ -92,34 +94,41 @@ class Dataset:
 
         targets_nan_mask = np.isnan(targets)
 
-        # Transform targets for training, but keep original targets for computing metrics.
-        targets_orig = targets.copy()
-        past_targets_as_features = targets.copy()
+        # We will be using three arrays of targets with possibly different preprocessing transformations applied
+        # to them:
+        # targets_for_metrics: these targets will be used for computing metrics during evaluation (targets from future
+        # timestamps that will be predicted during evaluation), no transformation can be applied to them;
+        # targets_for_loss: these targets will be used for computing loss during training (targets from future
+        # timestamps that will be predicted during training), some transformation can be applied to them;
+        # targets_for_features: these targets will be used as additional features for the model (targets from past
+        # timestamps and current timestamp), some transformation can be applied to them and NaN values in them will
+        # be imputed.
+        targets_for_metrics = targets
+        targets_for_loss = targets.copy()
+        targets_for_features = targets.copy()
 
-        # Transform targets with which the loss will be computed.
-        targets_transform = self.transforms[targets_transform]
-        if transform_targets_for_each_node_separately:
-            targets_transform.fit(targets[all_train_targets_timestamps])
-            targets = targets_transform.transform(targets)
+        # Transform targets that will be used for computing loss.
+        targets_for_loss_transform = self.transforms[targets_for_loss_transform]
+        if transform_targets_for_loss_for_each_node_separately:
+            targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps])
+            targets_for_loss = targets_for_loss_transform.transform(targets_for_loss)
         else:
-            targets_transform.fit(targets[all_train_targets_timestamps].reshape(-1, 1))
-            targets = targets_transform.transform(targets.reshape(-1, 1)).reshape(num_timestamps, num_nodes)
+            targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps].reshape(-1, 1))
+            targets_for_loss = targets_for_loss_transform.transform(targets.reshape(-1, 1))\
+                .reshape(num_timestamps, num_nodes)
 
-        # Transform targets which will be provided as features to the model.
-        past_targets_as_features_transform = self.transforms[past_targets_as_features_transform]
-        if transform_past_targets_as_features_for_each_node_separately:
-            past_targets_as_features_transform.fit(past_targets_as_features[all_train_targets_timestamps])
-            past_targets_as_features = past_targets_as_features_transform.transform(past_targets_as_features)
+        # Transform targets that will be used as features for the model.
+        targets_for_features_transform = self.transforms[targets_for_features_transform]
+        if transform_targets_for_features_for_each_node_separately:
+            targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps])
+            targets_for_features = targets_for_features_transform.transform(targets_for_features)
         else:
-            past_targets_as_features_transform.fit(
-                past_targets_as_features[all_train_targets_timestamps].reshape(-1, 1)
-            )
-            past_targets_as_features = past_targets_as_features_transform.transform(
-                past_targets_as_features.reshape(-1, 1)
-            ).reshape(num_timestamps, num_nodes)
+            targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps].reshape(-1, 1))
+            targets_for_features = targets_for_features_transform.transform(targets_for_features.reshape(-1, 1))\
+                .reshape(num_timestamps, num_nodes)
 
         # Impute NaNs in targets.
-        if imputation_startegy_for_nan_targets == 'prev':
+        if imputation_startegy_for_nan_targets_for_features == 'prev':
             if targets_nan_mask[all_train_targets_timestamps].all(axis=0).any(axis=1):
                 raise RuntimeError(
                     'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
@@ -128,25 +137,24 @@ class Dataset:
                 )
 
             # First, impute NaN targets with forward fill.
-            past_targets_as_features_df = pd.DataFrame(past_targets_as_features)
-            past_targets_as_features_df.ffill(axis=0, inplace=True)
+            targets_for_features_df = pd.DataFrame(targets_for_features)
+            targets_for_features_df.ffill(axis=0, inplace=True)
 
             # If some nodes have NaN targets starting from the very beginning of the time series, these NaN values are
             # still left unimputed after forward fill. So, we now apply backward fill to them. Note that we have
             # already verified that there are at least some train target values that are not NaN for each node, and
             # thus it is guaranteed that this will not lead to future targets leakage from val and test timestamps.
-            if np.isnan(past_targets_as_features_df.values).any():
-                past_targets_as_features_df.bfill(axis=0, inplace=True)
+            if np.isnan(targets_for_features_df.values).any():
+                targets_for_features_df.bfill(axis=0, inplace=True)
 
-            past_targets_as_features = past_targets_as_features_df.values
+            targets_for_features = targets_for_features_df.values
 
-        elif imputation_startegy_for_nan_targets == 'zero':
-            targets[targets_nan_mask] = 0
-            past_targets_as_features[targets_nan_mask] = 0
+        elif imputation_startegy_for_nan_targets_for_features == 'zero':
+            targets_for_features[targets_nan_mask] = 0
 
         else:
             raise ValueError(f'Unsupported value for imputation_strategy_for_nan_targets: '
-                             f'{imputation_startegy_for_nan_targets}.')
+                             f'{imputation_startegy_for_nan_targets_for_features}.')
 
         # PREPARE FEATURES
 
@@ -365,7 +373,7 @@ class Dataset:
             past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
 
         past_targets_features_dim = 1 if provide_sequnce_inputs else len(past_timestamp_shifts_for_features)
-        past_targets_nan_mask_features_dim = past_targets_features_dim * add_features_for_nan_targets
+        past_targets_nan_mask_features_dim = past_targets_features_dim * add_indicators_of_nan_targets_to_features
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
                         deepwalk_embeddings.shape[2])
@@ -448,12 +456,12 @@ class Dataset:
         self.val_timestamps = torch.from_numpy(val_timestamps)
         self.test_timestamps = torch.from_numpy(test_timestamps)
 
-        self.targets_orig = torch.from_numpy(targets_orig)
-        self.targets = torch.from_numpy(targets)
-        self.past_targets_as_features = torch.from_numpy(past_targets_as_features)
+        self.targets_for_metrics = torch.from_numpy(targets_for_metrics)
+        self.targets_for_loss = torch.from_numpy(targets_for_loss)
+        self.targets_for_features = torch.from_numpy(targets_for_features)
         self.targets_nan_mask = torch.from_numpy(targets_nan_mask)
-        self.targets_transform = targets_transform
-        self.transform_targets_for_each_node_separately = transform_targets_for_each_node_separately
+        self.targets_for_loss_transform = targets_for_loss_transform
+        self.transform_targets_for_loss_for_each_node_separately = transform_targets_for_loss_for_each_node_separately
 
         self.temporal_features = torch.from_numpy(temporal_features)
         self.temporal_feature_names = temporal_feature_names
@@ -496,7 +504,7 @@ class Dataset:
         self.future_timestamp_shifts_for_prediction = torch.from_numpy(future_timestamp_shifts_for_prediction)
         self.past_timestamp_shifts_for_features = torch.from_numpy(past_timestamp_shifts_for_features)
 
-        self.add_features_for_nan_targets = add_features_for_nan_targets
+        self.add_indicators_of_nan_targets_to_features = add_indicators_of_nan_targets_to_features
         self.plr_apply_to_past_targets = plr_apply_to_past_targets
 
         self.targets_dim = 1 if only_predict_at_end_of_horizon else prediction_horizon
@@ -511,9 +519,9 @@ class Dataset:
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
 
-        past_targets = self.past_targets_as_features[past_timestamps].to(self.device).T
+        past_targets = self.targets_for_features[past_timestamps].to(self.device).T
 
-        if self.add_features_for_nan_targets:
+        if self.add_indicators_of_nan_targets_to_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device)
             past_targets_nan_mask[negative_mask] = 1
             past_targets_nan_mask = past_targets_nan_mask.T
@@ -533,9 +541,9 @@ class Dataset:
     def get_timestamp_features_as_sequence_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
 
-        past_targets = self.past_targets_as_features[past_timestamps].to(self.device).T.unsqueeze(-1)
+        past_targets = self.targets_for_features[past_timestamps].to(self.device).T.unsqueeze(-1)
 
-        if self.add_features_for_nan_targets:
+        if self.add_indicators_of_nan_targets_to_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device).T.unsqueeze(-1)
         else:
             past_targets_nan_mask = torch.empty(self.num_nodes, self.seq_len, 0, device=self.device)
@@ -559,7 +567,7 @@ class Dataset:
 
     def get_timestamp_targets(self, timestamp):
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
-        targets = self.targets[future_timestamps].to(self.device).T.squeeze(1)
+        targets = self.targets_for_loss[future_timestamps].to(self.device).T.squeeze(1)
         targets_nan_mask = self.targets_nan_mask[future_timestamps].to(self.device).T.squeeze(1)
 
         return targets, targets_nan_mask
@@ -582,10 +590,10 @@ class Dataset:
         # [batch_size, past_targets_features_dim, num_nodes] to
         # [batch_size, num_nodes, past_targets_features_dim] to
         # [num_nodes * batch_size, past_targets_features_dim].
-        past_targets = self.past_targets_as_features[past_timestamps].to(self.device).transpose(1, 2)\
+        past_targets = self.targets_for_features[past_timestamps].to(self.device).transpose(1, 2)\
             .flatten(start_dim=0, end_dim=1)
 
-        if self.add_features_for_nan_targets:
+        if self.add_indicators_of_nan_targets_to_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device)
             past_targets_nan_mask[negative_mask] = 1
             past_targets_nan_mask = past_targets_nan_mask.transpose(1, 2).flatten(start_dim=0, end_dim=1)
@@ -623,10 +631,10 @@ class Dataset:
         # [batch_size, num_nodes, seq_len] to
         # [num_nodes * batch_size, seq_len] to
         # [num_nodes * batch_size, seq_len, 1].
-        past_targets = self.past_targets_as_features[past_timestamps].to(self.device).transpose(1, 2)\
+        past_targets = self.targets_for_features[past_timestamps].to(self.device).transpose(1, 2)\
             .flatten(start_dim=0, end_dim=1).unsqueeze(-1)
 
-        if self.add_features_for_nan_targets:
+        if self.add_indicators_of_nan_targets_to_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device).transpose(1, 2)\
                 .flatten(start_dim=0, end_dim=1).unsqueeze(-1)
         else:
@@ -669,8 +677,8 @@ class Dataset:
         # [batch_size, num_nodes, targets_dim] to
         # [num_nodes * batch_size, targets_dim],
         # and if targets_dim is 1, then the last dimension is squeezed.
-        targets = self.targets[future_timestamps].to(self.device).transpose(1, 2).flatten(start_dim=0, end_dim=1)\
-            .squeeze(1)
+        targets = self.targets_for_loss[future_timestamps].to(self.device).transpose(1, 2)\
+            .flatten(start_dim=0, end_dim=1).squeeze(1)
         targets_nan_mask = self.targets_nan_mask[future_timestamps].to(self.device).transpose(1, 2)\
             .flatten(start_dim=0, end_dim=1).squeeze(1)
 
@@ -682,20 +690,20 @@ class Dataset:
 
         return features, targets, targets_nan_mask
 
-    def transform_preds_to_orig(self, preds):
+    def transform_preds_for_metrics(self, preds):
         device = preds.device
 
-        if self.transform_targets_for_each_node_separately:
+        if self.transform_targets_for_loss_for_each_node_separately:
             if self.targets_dim == 1:
                 preds = preds.cpu().numpy()
-                preds_orig = self.targets_transform.inverse_transform(preds)
+                preds_orig = self.targets_for_loss_transform.inverse_transform(preds)
                 preds_orig = torch.tensor(preds_orig, device=device)
             else:
                 preds = preds.transpose(1, 2)
                 shape = preds.shape
                 preds = preds.reshape(-1, self.num_nodes)
                 preds = preds.cpu().numpy()
-                preds_orig = self.targets_transform.inverse_transform(preds)
+                preds_orig = self.targets_for_loss_transform.inverse_transform(preds)
                 preds_orig = torch.tensor(preds_orig, device=device)
                 preds_orig = preds_orig.reshape(*shape)
                 preds_orig = preds_orig.transpose(1, 2)
@@ -703,22 +711,22 @@ class Dataset:
             shape = preds.shape
             preds = preds.reshape(-1, 1)
             preds = preds.cpu().numpy()
-            preds_orig = self.targets_transform.inverse_transform(preds)
+            preds_orig = self.targets_for_loss_transform.inverse_transform(preds)
             preds_orig = torch.tensor(preds_orig, device=device)
             preds_orig = preds_orig.reshape(*shape)
 
         return preds_orig
 
-    def get_val_targets_orig(self):
-        targets = self.targets_orig[self.all_val_targets_timestamps]
+    def get_val_targets_for_metrics(self):
+        targets = self.targets_for_metrics[self.all_val_targets_timestamps]
         targets_nan_mask = self.targets_nan_mask[self.all_val_targets_timestamps]
 
         targets, targets_nan_mask = self.prepare_targets_for_evaluation(targets, targets_nan_mask)
 
         return targets.to(self.device), targets_nan_mask.to(self.device)
 
-    def get_test_targets_orig(self):
-        targets = self.targets_orig[self.all_test_targets_timestamps]
+    def get_test_targets_for_metrics(self):
+        targets = self.targets_for_metrics[self.all_test_targets_timestamps]
         targets_nan_mask = self.targets_nan_mask[self.all_test_targets_timestamps]
 
         targets, targets_nan_mask = self.prepare_targets_for_evaluation(targets, targets_nan_mask)

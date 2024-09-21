@@ -46,24 +46,32 @@ def get_args():
                              'each edge type separately and its results will be concatenated before being passed '
                              'to the following MLP module in the model.')
 
-    # Targets preprocessing.
-    parser.add_argument('--targets_transform', type=str, default='standard-scaler',
-                        choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
-                                 'power-transform-yeo-johnson', 'quantile-transform-normal',
-                                 'quantile-transform-uniform'])
-    parser.add_argument('--transform_targets_for_each_node_separately', default=False, action='store_true')
+    # The next two pairs of arguments can be used to transform targets that will be used for loss computation during
+    # training and targets that will be used as features for the model. Note that metrics during evaluation are always
+    # computed using original untransformed targets.
 
-    # Past targets used as features preprocessing.
-    parser.add_argument('--past_targets_as_features_transform', type=str, default='quantile-transform-normal',
+    # Transformation applied to targets that will be used for computing loss (targets from future timestamps that will
+    # be predicted during training).
+    parser.add_argument('--targets_for_loss_transform', type=str, default='standard-scaler',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
-    parser.add_argument('--transform_past_targets_as_features_for_each_node_separately', default=False,
+    parser.add_argument('--transform_targets_for_loss_for_each_node_separately', default=False, action='store_true')
+
+    # Transformation applied to targets that will be used as features for the model (targets from past timestamps and
+    # current timestamp).
+    parser.add_argument('--targets_for_features_transform', type=str, default='quantile-transform-normal',
+                        choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
+                                 'power-transform-yeo-johnson', 'quantile-transform-normal',
+                                 'quantile-transform-uniform'])
+    parser.add_argument('--transform_targets_for_features_for_each_node_separately', default=False,
                         action='store_true')
 
-    # Past targets used as features imputation.
-    parser.add_argument('--imputation_startegy_for_nan_targets', type=str, default='prev', choices=['prev', 'zero'])
-    parser.add_argument('--add_features_for_nan_targets', default=False, action='store_true')
+    # NaN value imputation applied to targets that will be used for features (targets from past timestamps and current
+    # timestamp).
+    parser.add_argument('--imputation_startegy_for_nan_targets_for_features', type=str, default='prev',
+                        choices=['prev', 'zero'])
+    parser.add_argument('--add_indicators_of_nan_targets_to_features', default=False, action='store_true')
 
     # Drop unwanted node features.
     parser.add_argument('--do_not_use_temporal_features', default=False, action='store_true')
@@ -235,16 +243,16 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
         preds.append(cur_preds)
 
     preds = torch.cat(preds, axis=0)
-    preds_orig = dataset.transform_preds_to_orig(preds)
+    preds_for_metrics = dataset.transform_preds_for_metrics(preds)
 
     if split == 'val':
-        targets_orig, targets_nan_mask = dataset.get_val_targets_orig()
+        targets_for_metrics, targets_nan_mask = dataset.get_val_targets_for_metrics()
     elif split == 'test':
-        targets_orig, targets_nan_mask = dataset.get_test_targets_orig()
+        targets_for_metrics, targets_nan_mask = dataset.get_test_targets_for_metrics()
     else:
         raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    loss = loss_fn(input=preds_orig, target=targets_orig, reduction='none')
+    loss = loss_fn(input=preds_for_metrics, target=targets_for_metrics, reduction='none')
     loss[targets_nan_mask] = 0
     loss = loss.sum() / (~targets_nan_mask).sum()
 
@@ -366,13 +374,13 @@ def main():
         use_forward_and_reverse_edges_as_different_edge_types=\
             args.use_forward_and_reverse_edges_as_different_edge_types,
         add_self_loops=args.do_not_separate_ego_node_representation,
-        targets_transform=args.targets_transform,
-        transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
-        past_targets_as_features_transform=args.past_targets_as_features_transform,
-        transform_past_targets_as_features_for_each_node_separately=\
-            args.transform_past_targets_as_features_for_each_node_separately,
-        imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
-        add_features_for_nan_targets=args.add_features_for_nan_targets,
+        targets_for_loss_transform=args.targets_for_loss_transform,
+        transform_targets_for_loss_for_each_node_separately=args.transform_targets_for_loss_for_each_node_separately,
+        targets_for_features_transform=args.targets_for_features_transform,
+        transform_targets_for_features_for_each_node_separately=\
+            args.transform_targets_for_features_for_each_node_separately,
+        imputation_startegy_for_nan_targets_for_features=args.imputation_startegy_for_nan_targets_for_features,
+        add_indicators_of_nan_targets_to_features=args.add_indicators_of_nan_targets_to_features,
         do_not_use_temporal_features=args.do_not_use_temporal_features,
         do_not_use_spatial_features=args.do_not_use_spatial_features,
         do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
