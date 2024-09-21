@@ -186,7 +186,7 @@ def get_args():
                              'train_batch_size * num_accumulation_steps.')
     parser.add_argument('--eval_batch_size', type=int, default=None,
                         help='If None, it is set to be the same as train_batch_size. But since evaluation requires '
-                             'less VRAM han training, larger batch size can be used.')
+                             'less VRAM than training, larger batch size can be used.')
     parser.add_argument('--num_accumulation_steps', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=1000,
                         help='Evaluate after this many optimization steps. If None, only evaluate at the end of epoch.')
