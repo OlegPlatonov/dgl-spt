@@ -195,7 +195,7 @@ def get_args():
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--amp', default=False, action='store_true')
     parser.add_argument('--num_threads', type=int, default=32)
-    parser.add_argument('--in_nirvana', default=False, action='store_true', help='Launch in Nirvana.')
+    parser.add_argument('--nirvana', default=False, action='store_true', help='Launch in Nirvana.')
 
     args = parser.parse_args()
 
@@ -391,7 +391,7 @@ def main():
         train_batch_size=args.train_batch_size,
         eval_batch_size=args.eval_batch_size,
         device=args.device,
-        in_nirvana=args.in_nirvana
+        nirvana=args.nirvana
     )
 
     if args.metric == 'RMSE':
