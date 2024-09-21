@@ -53,10 +53,6 @@ def get_args():
                                  'quantile-transform-uniform'])
     parser.add_argument('--transform_targets_for_each_node_separately', default=False, action='store_true')
 
-    # Targets imputation.
-    parser.add_argument('--imputation_startegy_for_nan_targets', type=str, default='prev', choices=['prev', 'zero'])
-    parser.add_argument('--add_features_for_nan_targets', default=False, action='store_true')
-
     # Past targets used as features preprocessing.
     parser.add_argument('--past_targets_as_features_transform', type=str, default='quantile-transform-normal',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
@@ -64,6 +60,10 @@ def get_args():
                                  'quantile-transform-uniform'])
     parser.add_argument('--transform_past_targets_as_features_for_each_node_separately', default=False,
                         action='store_true')
+
+    # Past targets used as features imputation.
+    parser.add_argument('--imputation_startegy_for_nan_targets', type=str, default='prev', choices=['prev', 'zero'])
+    parser.add_argument('--add_features_for_nan_targets', default=False, action='store_true')
 
     # Drop unwanted node features.
     parser.add_argument('--do_not_use_temporal_features', default=False, action='store_true')
@@ -368,11 +368,11 @@ def main():
         add_self_loops=args.do_not_separate_ego_node_representation,
         targets_transform=args.targets_transform,
         transform_targets_for_each_node_separately=args.transform_targets_for_each_node_separately,
-        imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
-        add_features_for_nan_targets=args.add_features_for_nan_targets,
         past_targets_as_features_transform=args.past_targets_as_features_transform,
         transform_past_targets_as_features_for_each_node_separately=\
             args.transform_past_targets_as_features_for_each_node_separately,
+        imputation_startegy_for_nan_targets=args.imputation_startegy_for_nan_targets,
+        add_features_for_nan_targets=args.add_features_for_nan_targets,
         do_not_use_temporal_features=args.do_not_use_temporal_features,
         do_not_use_spatial_features=args.do_not_use_spatial_features,
         do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
