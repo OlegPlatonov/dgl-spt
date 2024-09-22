@@ -3,7 +3,7 @@ from tqdm import tqdm
 
 import torch
 from torch.nn import functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import TensorDataset, DataLoader
 from torch.cuda.amp import autocast, GradScaler
 
 from models import ModelRegistry
@@ -190,6 +190,9 @@ def get_args():
     parser.add_argument('--num_accumulation_steps', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=1000,
                         help='Evaluate after this many optimization steps. If None, only evaluate at the end of epoch.')
+    parser.add_argument('--eval_max_num_predictions_per_step', type=int, default=10_000_000_000,
+                        help='The maximum number of predictions that will be put on GPU for loss computation during '
+                             'evaluation. Decrease this value if you face GPU OOM issues during evaluation.')
 
     parser.add_argument('--num_runs', type=int, default=5)
     parser.add_argument('--device', type=str, default='cuda:0')
@@ -241,7 +244,7 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
         if padded:
             cur_preds = cur_preds[:-padding_size]
 
-        preds.append(cur_preds)
+        preds.append(cur_preds.cpu())
 
     preds = torch.cat(preds, axis=0)
     preds_for_metrics = dataset.transform_preds_for_metrics(preds)
@@ -253,11 +256,39 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
     else:
         raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    loss = loss_fn(input=preds_for_metrics, target=targets_for_metrics, reduction='none')
-    loss[targets_nan_mask] = 0
-    loss = loss.sum() / (~targets_nan_mask).sum()
+    if len(preds_for_metrics) < dataset.eval_max_num_timestamps_per_step:
+        # Loss can be computed on GPU in one step.
+        preds_for_metrics = preds_for_metrics.to(dataset.device)
+        targets_for_metrics = targets_for_metrics.to(dataset.device)
 
-    metric = loss.sqrt().item() if metric == 'RMSE' else loss.item()
+        loss = loss_fn(input=preds_for_metrics, target=targets_for_metrics, reduction='none')
+        loss[targets_nan_mask] = 0
+        loss_mean = loss.sum() / (~targets_nan_mask).sum()
+
+    else:
+        # Computing loss on GPU requires batching.
+        preds_targets_dataset = TensorDataset(preds_for_metrics, targets_for_metrics, targets_nan_mask)
+        preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
+                                          shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
+
+        loss_sum = 0
+        loss_count = 0
+        for cur_preds_for_metrics, cur_targets_for_metrics, cur_targets_nan_mask in preds_targets_loader:
+            cur_preds_for_metrics = cur_preds_for_metrics.to(dataset.device)
+            cur_targets_for_metrics = cur_targets_for_metrics.to(dataset.device)
+            cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
+
+            cur_loss = loss_fn(input=cur_preds_for_metrics, target=cur_targets_for_metrics, reduction='none')
+            cur_loss[cur_targets_nan_mask] = 0
+            cur_loss_sum = cur_loss.sum()
+            cur_loss_count = (~cur_targets_nan_mask).sum()
+
+            loss_sum += cur_loss_sum
+            loss_count += cur_loss_count
+
+        loss_mean = loss_sum / loss_count
+
+    metric = loss_mean.sqrt().item() if metric == 'RMSE' else loss_mean.item()
 
     return metric
 
@@ -391,6 +422,7 @@ def main():
         num_features_transform=args.numerical_features_transform,
         train_batch_size=args.train_batch_size,
         eval_batch_size=args.eval_batch_size,
+        eval_max_num_predictions_per_step=args.eval_max_num_predictions_per_step,
         device=args.device,
         nirvana=args.nirvana
     )

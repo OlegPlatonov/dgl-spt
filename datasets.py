@@ -62,7 +62,8 @@ class Dataset:
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  num_features_transform='none', imputation_strategy_for_num_features='most_frequent',
-                 train_batch_size=1, eval_batch_size=None, device='cpu', nirvana=False):
+                 train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
+                 device='cpu', nirvana=False):
         if name_or_path.endswith('.npz'):
             name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
             path = name_or_path
@@ -507,6 +508,8 @@ class Dataset:
         self.features_dim = features_dim
         self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
 
+        self.eval_max_num_timestamps_per_step = eval_max_num_predictions_per_step // self.targets_dim // num_nodes
+
         del data
 
     def get_timestamp_features_as_single_input(self, timestamp):
@@ -686,31 +689,29 @@ class Dataset:
         return features, targets, targets_nan_mask
 
     def transform_preds_for_metrics(self, preds):
-        device = preds.device
-
         if self.transform_targets_for_loss_for_each_node_separately:
             if self.targets_dim == 1:
-                preds = preds.cpu().numpy()
-                preds_orig = self.targets_for_loss_transform.inverse_transform(preds)
-                preds_orig = torch.tensor(preds_orig, device=device)
+                preds = preds.numpy()
+                preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
+                preds_for_metrics = torch.tensor(preds_for_metrics)
             else:
                 preds = preds.transpose(1, 2)
                 shape = preds.shape
                 preds = preds.reshape(-1, self.num_nodes)
-                preds = preds.cpu().numpy()
-                preds_orig = self.targets_for_loss_transform.inverse_transform(preds)
-                preds_orig = torch.tensor(preds_orig, device=device)
-                preds_orig = preds_orig.reshape(*shape)
-                preds_orig = preds_orig.transpose(1, 2)
+                preds = preds.numpy()
+                preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
+                preds_for_metrics = torch.tensor(preds_for_metrics)
+                preds_for_metrics = preds_for_metrics.reshape(*shape)
+                preds_for_metrics = preds_for_metrics.transpose(1, 2)
         else:
             shape = preds.shape
             preds = preds.reshape(-1, 1)
-            preds = preds.cpu().numpy()
-            preds_orig = self.targets_for_loss_transform.inverse_transform(preds)
-            preds_orig = torch.tensor(preds_orig, device=device)
-            preds_orig = preds_orig.reshape(*shape)
+            preds = preds.numpy()
+            preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
+            preds_for_metrics = torch.tensor(preds_for_metrics)
+            preds_for_metrics = preds_for_metrics.reshape(*shape)
 
-        return preds_orig
+        return preds_for_metrics
 
     def get_val_targets_for_metrics(self):
         targets = self.targets_for_metrics[self.all_val_targets_timestamps]
@@ -718,7 +719,7 @@ class Dataset:
 
         targets, targets_nan_mask = self.prepare_targets_for_evaluation(targets, targets_nan_mask)
 
-        return targets.to(self.device), targets_nan_mask.to(self.device)
+        return targets, targets_nan_mask
 
     def get_test_targets_for_metrics(self):
         targets = self.targets_for_metrics[self.all_test_targets_timestamps]
@@ -726,7 +727,7 @@ class Dataset:
 
         targets, targets_nan_mask = self.prepare_targets_for_evaluation(targets, targets_nan_mask)
 
-        return targets.to(self.device), targets_nan_mask.to(self.device)
+        return targets, targets_nan_mask
 
     def prepare_targets_for_evaluation(self, targets, targets_nan_mask):
         if self.targets_dim == 1:
