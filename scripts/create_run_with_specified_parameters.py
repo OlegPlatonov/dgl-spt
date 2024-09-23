@@ -7,9 +7,9 @@ from itertools import product
 try:
     import nirvana_dl as ndl
     PARAMS = ndl.params()
-    print("Imported Nirvana DL package")
+    print("Imported Nirvana DL package", file=sys.stderr)
 except ImportError:
-    print("Couldn't import `nirvana_dl` package")
+    print("Couldn't import `nirvana_dl` package", file=sys.stderr)
     ndl = None
     PARAMS = {
         "name": "nirvana_local_test",
