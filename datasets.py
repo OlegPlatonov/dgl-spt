@@ -114,7 +114,7 @@ class Dataset:
             targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps].reshape(-1, 1))
             targets_for_loss = targets_for_loss_transform.transform(targets.reshape(-1, 1))\
                 .reshape(num_timestamps, num_nodes)
-
+        print("Scaled targets for features")
         # Transform targets that will be used as features for the model.
         targets_for_features_transform = self.transforms[targets_for_features_transform]
         if transform_targets_for_features_for_each_node_separately:
@@ -124,6 +124,7 @@ class Dataset:
             targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps].reshape(-1, 1))
             targets_for_features = targets_for_features_transform.transform(targets_for_features.reshape(-1, 1))\
                 .reshape(num_timestamps, num_nodes)
+        print("Scaled targets for targets")
 
         # Impute NaNs in targets.
         if imputation_startegy_for_nan_targets_for_features == 'prev':
