@@ -128,7 +128,7 @@ def get_args():
                         help='Only used if plr_past_targets is True.')
 
     # Model type selection.
-    parser.add_argument('--model_class', type=str, default='SignleInputGNN',
+    parser.add_argument('--model_class', type=str, default='SingleInputGNN',
                         choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN'])
     parser.add_argument('--neighborhood_aggregation', type=str, default='MeanAggr',
                         choices=['MeanAggr', 'MaxAggr', 'GCNAggr', 'AttnGATAggr', 'AttnTrfAggr'],
