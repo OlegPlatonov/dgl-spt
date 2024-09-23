@@ -38,7 +38,7 @@ class NirvanaNpzDataWrapper:
 class Dataset:
     transforms = {
         'none': FunctionTransformer(func=lambda x: x, inverse_func=lambda x: x),
-        'standard-scaler': StandardScaler(),
+        'standard-scaler': StandardScaler(copy=False),
         'min-max-scaler': MinMaxScaler(),
         'robust-scaler': RobustScaler(unit_variance=True),
         'power-transform-yeo-johnson': PowerTransformer(method='yeo-johnson', standardize=True),
