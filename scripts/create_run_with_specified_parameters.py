@@ -2,12 +2,12 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 import sys
 from ast import literal_eval
-
 from itertools import product
+
 try:
     import nirvana_dl as ndl
     PARAMS = ndl.params()
-
+    print("Imported Nirvana DL package")
 except ImportError:
     ndl = None
     PARAMS = {
@@ -74,39 +74,40 @@ except ImportError:
         "amp": False,
         "num_threads": [32, 123123123123123123],
     }
-    
+
     for key in PARAMS:
         PARAMS[key] = str(PARAMS[key])
 
 STORE_TRUE_ARGS = {
-    "use_deepwalk_node_embeddings",
-    "only_predict_at_end_of_horizon",
+    "transform_targets_for_loss_for_each_node_separately",
     "seq_encoder_bidir_attn",
-    "amp",
-    "reverse_edges",
-    "to_undirected",
-    "plr_num_features_shared_linear",
-    "use_learnable_node_embeddings",
-    "do_not_use_temporal_features",
-    "add_features_for_nan_targets",
-    "plr_num_features_shared_frequencies",
-    "do_not_use_spatiotemporal_features",
     "plr_past_targets_shared_linear",
-    "transform_targets_for_each_node_separately",
-    "initialize_learnable_node_embeddings_with_deepwalk",
-    "do_not_separate_ego_node_representation",
-    "use_forward_and_reverse_edges_as_different_edge_types",
-    "plr_past_targets_shared_frequencies",
-    "use_plr_for_past_targets",
+    "do_not_use_spatiotemporal_features",
+    "reverse_edges",
+    "add_indicators_of_nan_targets_to_features",
+    "plr_num_features_shared_linear",
+    "only_predict_at_end_of_horizon",
     "do_not_use_spatial_features",
+    "do_not_separate_ego_node_representation",
+    "to_undirected",
+    "nirvana",
+    "use_forward_and_reverse_edges_as_different_edge_types",
+    "initialize_learnable_node_embeddings_with_deepwalk",
+    "amp",
+    "do_not_use_temporal_features",
+    "use_plr_for_past_targets",
     "use_plr_for_num_features",
-    "nirvana"
+    "transform_targets_for_features_for_each_node_separately",
+    "plr_past_targets_shared_frequencies",
+    "use_deepwalk_node_embeddings",
+    "use_learnable_node_embeddings",
+    "plr_num_features_shared_frequencies",
 }
 
 
 def filter_params_on_single_and_multiple_options():
-    params_with_multiple_options_and_values: Dict[str, List[str]] = {} # those which can be casted to lists of values
-    params_with_single_options_and_values: Dict[str, str]= {} # those which can be casted to lists of values
+    params_with_multiple_options_and_values: Dict[str, List[str]] = {}  # those which can be casted to lists of values
+    params_with_single_options_and_values: Dict[str, str] = {}  # those which can be casted to lists of values
 
     def _check_if_iterable(value):
         try:
@@ -116,13 +117,13 @@ def filter_params_on_single_and_multiple_options():
             return False
         except (ValueError, SyntaxError):
             return isinstance(value, (list, tuple, set))
-    
+
     for param, value in PARAMS.items():
         if _check_if_iterable(value=value):
             params_with_multiple_options_and_values[param] = [str(x) for x in literal_eval(repr(value))]
         else:
             params_with_single_options_and_values[param] = value
-    
+
     return params_with_single_options_and_values, params_with_multiple_options_and_values
 
 
@@ -131,10 +132,10 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
 
     for option_name, option_value in params_flattened_one_instance.items():
         print(f"Option: {repr(option_name)}, param: {repr(option_value)}", file=sys.stderr)
-        if (option_value == "None" or  option_value is None):
+        if option_value == "None" or option_value is None:
             continue
-        
-        if option_name in STORE_TRUE_ARGS: # this option value is true and it;s passed as true
+
+        if option_name in STORE_TRUE_ARGS:  # this option value is true and it;s passed as true
             if option_value == "True":
                 param_string: str = f"--{option_name}"
             else:
@@ -144,37 +145,33 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
         launch_script_string_container.append(param_string)
 
     launch_script_string: str = " ".join(launch_script_string_container)
-    
+
     return launch_script_string
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     single_choice_params, multi_choice_params = filter_params_on_single_and_multiple_options()
-    
+
     if len(multi_choice_params) > 0:
         multi_choice_containers_per_param: List[List[Tuple[str, str]]] = []
-        
+
         for param, values in multi_choice_params.items():
-            multi_choice_containers_per_param.append(
-                [(param, v) for v in values]
-            )
-        
+            multi_choice_containers_per_param.append([(param, v) for v in values])
+
         print(f"{multi_choice_containers_per_param=}", file=sys.stderr)
         multi_choice_params_product = product(*multi_choice_containers_per_param)
-        
 
         launch_strings: List[str] = []
-        
-        
+
         for params_choice in multi_choice_params_product:
             print(f"{params_choice}", file=sys.stderr)
             parameters = {p: v for p, v in params_choice}
             parameters.update(single_choice_params)
-            
+
             one_run_string = create_one_run(parameters)
-            
+
             launch_strings.append(one_run_string)
 
-        
         print("\n\n".join(launch_strings))
     else:
         print(create_one_run(single_choice_params))
