@@ -19,7 +19,7 @@ def get_args():
     parser.add_argument('--dataset', type=str, default='pems-bay',
                         help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
                              'with data. Possible dataset names: metr-la, pems-bay, largest, largest-2019.')
-    parser.add_argument('--metric', type=str, default='RMSE', choices=['RMSE', 'MAE'])
+    parser.add_argument('--metric', type=str, default='MAE', choices=['MAE', 'RMSE'])
 
     # Select future timestamps targets from which will be predicted by the model.
     parser.add_argument('--prediction_horizon', type=int, default=12)
