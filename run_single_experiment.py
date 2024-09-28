@@ -196,7 +196,8 @@ def get_args():
 
     parser.add_argument('--num_runs', type=int, default=5)
     parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--amp', default=False, action='store_true')
+    parser.add_argument('--no_amp', default=False, action='store_true')
+    parser.add_argument('--no_gradscaler', default=False, action='store_true')
     parser.add_argument('--num_threads', type=int, default=32)
     parser.add_argument('--nirvana', default=False, action='store_true',
                         help='Indicates that experiment is being run in Nirvana.')
@@ -206,7 +207,7 @@ def get_args():
     return args
 
 
-def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=False):
+def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=True):
     features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets(timestamps_batch)
 
     with autocast(enabled=amp):
@@ -218,15 +219,15 @@ def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=False):
     return loss
 
 
-def optimizer_step(loss, optimizer, scaler):
-    scaler.scale(loss).backward()
-    scaler.step(optimizer)
-    scaler.update()
+def optimizer_step(loss, optimizer, gradscaler):
+    gradscaler.scale(loss).backward()
+    gradscaler.step(optimizer)
+    gradscaler.update()
     optimizer.zero_grad()
 
 
 @torch.no_grad()
-def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=False):
+def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=True):
     preds = []
     for timestamps_batch in timestamps_loader:
         padded = False
@@ -294,7 +295,7 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
 
 
 @torch.no_grad()
-def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=False):
+def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=True):
     val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
                                          timestamps_loader=val_timestamps_loader,
                                          loss_fn=loss_fn, metric=metric, amp=amp)
@@ -311,7 +312,7 @@ def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timesta
 
 
 def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
-          run_id, device, amp=False, seed=None):
+          run_id, device, amp=True, use_gradscaler=True, seed=None):
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -328,7 +329,7 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
 
     parameter_groups = get_parameter_groups(model)
     optimizer = torch.optim.AdamW(parameter_groups, lr=lr, weight_decay=weight_decay)
-    scaler = GradScaler(enabled=amp)
+    gradscaler = GradScaler(enabled=use_gradscaler)
 
     logger.start_run(run=run_id)
     epoch = 1
@@ -349,7 +350,7 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
 
             if steps_till_optimizer_step == 0:
                 loss /= num_accumulation_steps
-                optimizer_step(loss=loss, optimizer=optimizer, scaler=scaler)
+                optimizer_step(loss=loss, optimizer=optimizer, gradscaler=gradscaler)
                 loss = 0
                 optimizer_steps_done += 1
                 steps_till_optimizer_step = num_accumulation_steps
@@ -478,7 +479,7 @@ def main():
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
-              device=args.device, amp=args.amp, seed=run)
+              device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run)
 
     logger.print_metrics_summary()
 
