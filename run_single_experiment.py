@@ -358,8 +358,10 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
                 steps_till_optimizer_step = num_accumulation_steps
                 optimizer_steps_till_eval -= 1
 
-            if (optimizer_steps_till_eval == 0 or
-                    train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)):
+            if (
+                optimizer_steps_till_eval == 0 or
+                train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)
+            ):
                 progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
                 model.eval()
                 metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
