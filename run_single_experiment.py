@@ -19,6 +19,9 @@ def get_args():
                         help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
                              'with data. Possible dataset names: metr-la, pems-bay, largest, largest-2019.')
     parser.add_argument('--metric', type=str, default='MAE', choices=['MAE', 'RMSE'])
+    parser.add_argument('--do_not_evaluate_on_test', default=False, action='store_true',
+                        help='Only evaluate the model on val data, but not on test data. '
+                             'Speeds up experiments when test metrics are not needed (e.g., hyperparameter search).')
 
     # Select future timestamps targets from which will be predicted by the model.
     parser.add_argument('--prediction_horizon', type=int, default=12)
@@ -294,25 +297,25 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
 
 
 @torch.no_grad()
-def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric,
-                             amp=True, device_type='cuda'):
+def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric,
+             amp=True, device_type='cuda', do_not_evaluate_on_test=False):
+    metrics = {}
     val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
-                                         timestamps_loader=val_timestamps_loader, loss_fn=loss_fn, metric=metric,
-                                         amp=amp, device_type=device_type)
-    test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
-                                          timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
-                                          amp=amp, device_type=device_type)
+                                         timestamps_loader=val_timestamps_loader, loss_fn=loss_fn,
+                                         metric=metric, amp=amp, device_type=device_type)
+    metrics[f'val {metric}'] = val_metric
 
-    metrics = {
-        f'val {metric}': val_metric,
-        f'test {metric}': test_metric
-    }
+    if not do_not_evaluate_on_test:
+        test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
+                                              timestamps_loader=test_timestamps_loader, loss_fn=loss_fn,
+                                              metric=metric, amp=amp, device_type=device_type)
+        metrics[f'test {metric}'] = test_metric
 
     return metrics
 
 
 def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
-          run_id, device, amp=True, use_gradscaler=True, seed=None):
+          run_id, device, amp=True, use_gradscaler=True, seed=None, do_not_evaluate_on_test=False):
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -364,10 +367,9 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
             ):
                 progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
                 model.eval()
-                metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
-                                                   val_timestamps_loader=val_timestamps_loader,
-                                                   test_timestamps_loader=test_timestamps_loader,
-                                                   loss_fn=loss_fn, metric=metric, amp=amp, device_type=device_type)
+                metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
+                                   test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
+                                   amp=amp, device_type=device_type, do_not_evaluate_on_test=do_not_evaluate_on_test)
                 logger.update_metrics(metrics=metrics, step=optimizer_steps_done, epoch=epoch)
                 model.train()
 
@@ -483,7 +485,8 @@ def main():
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
-              device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run)
+              device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
+              do_not_evaluate_on_test=args.do_not_evaluate_on_test)
 
     logger.print_metrics_summary()
 
