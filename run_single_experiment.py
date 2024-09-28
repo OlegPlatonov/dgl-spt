@@ -374,7 +374,7 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
             progress_bar.update()
             progress_bar.set_postfix(
                 {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                {'cur step metric': f'{cur_step_metric:.2f}', 'epoch': epoch}
+                {f'cur step {metric}': f'{cur_step_metric:.2f}', 'epoch': epoch}
             )
 
             if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
