@@ -4,7 +4,6 @@ from tqdm import tqdm
 import torch
 from torch.nn import functional as F
 from torch.utils.data import TensorDataset, DataLoader
-from torch.cuda.amp import autocast, GradScaler
 
 from models import ModelRegistry
 from datasets import Dataset
@@ -207,10 +206,10 @@ def get_args():
     return args
 
 
-def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=True):
+def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=True, device_type='cuda'):
     features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets(timestamps_batch)
 
-    with autocast(enabled=amp):
+    with torch.autocast(enabled=amp, device_type=device_type):
         preds = model(graph=dataset.train_batched_graph, x=features)
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
@@ -227,7 +226,7 @@ def optimizer_step(loss, optimizer, gradscaler):
 
 
 @torch.no_grad()
-def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=True):
+def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=True, device_type='cuda'):
     preds = []
     for timestamps_batch in timestamps_loader:
         padded = False
@@ -238,7 +237,7 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
             padded = True
 
         features = dataset.get_timestamps_batch_features(timestamps_batch)
-        with autocast(enabled=amp):
+        with torch.autocast(enabled=amp, device_type=device_type):
             cur_preds = model(graph=dataset.eval_batched_graph, x=features)
 
         cur_preds = cur_preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
@@ -295,13 +294,14 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
 
 
 @torch.no_grad()
-def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=True):
+def evaluate_on_val_and_test(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric,
+                             amp=True, device_type='cuda'):
     val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
-                                         timestamps_loader=val_timestamps_loader,
-                                         loss_fn=loss_fn, metric=metric, amp=amp)
+                                         timestamps_loader=val_timestamps_loader, loss_fn=loss_fn, metric=metric,
+                                         amp=amp, device_type=device_type)
     test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
-                                          timestamps_loader=test_timestamps_loader,
-                                          loss_fn=loss_fn, metric=metric, amp=amp)
+                                          timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
+                                          amp=amp, device_type=device_type)
 
     metrics = {
         f'val {metric}': val_metric,
@@ -329,7 +329,9 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
 
     parameter_groups = get_parameter_groups(model)
     optimizer = torch.optim.AdamW(parameter_groups, lr=lr, weight_decay=weight_decay)
-    gradscaler = GradScaler(enabled=use_gradscaler)
+    gradscaler = torch.amp.GradScaler(enabled=use_gradscaler)
+
+    device_type = 'cuda' if 'cuda' in device else 'cpu'
 
     logger.start_run(run=run_id)
     epoch = 1
@@ -344,7 +346,7 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
         for step in range(1, num_steps + 1):
             cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
             cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
-                                         loss_fn=loss_fn, amp=amp)
+                                         loss_fn=loss_fn, amp=amp, device_type=device_type)
             loss += cur_step_loss
             steps_till_optimizer_step -= 1
 
@@ -363,7 +365,7 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
                 metrics = evaluate_on_val_and_test(model=model, dataset=dataset,
                                                    val_timestamps_loader=val_timestamps_loader,
                                                    test_timestamps_loader=test_timestamps_loader,
-                                                   loss_fn=loss_fn, metric=metric, amp=amp)
+                                                   loss_fn=loss_fn, metric=metric, amp=amp, device_type=device_type)
                 logger.update_metrics(metrics=metrics, step=optimizer_steps_done, epoch=epoch)
                 model.train()
 
