@@ -1,5 +1,4 @@
 import os
-from functools import cache
 import numpy as np
 import pandas as pd
 import torch
@@ -7,32 +6,7 @@ import dgl
 from sklearn.preprocessing import (FunctionTransformer, StandardScaler, MinMaxScaler, RobustScaler, PowerTransformer,
                                    QuantileTransformer, OneHotEncoder)
 from sklearn.impute import SimpleImputer
-
-# try:
-#     import nirvana_dl as ndl
-# except ImportError:
-#     ndl = None
-
-
-class NirvanaNpzDataWrapper:
-    """Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays."""
-    def __init__(self, root_path: str):
-        self.root_path = root_path
-    
-    def get_array_path(self, array_name: str):
-        return os.path.join(self.root_path, f'{array_name}.npy')
-    
-    # @cache
-    def __getitem__(self, array_name: str):
-        array_path = self.get_array_path(array_name)
-        
-        print(f"Accessing `{array_name}` array at {array_path}")
-        array = np.load(array_path, allow_pickle=True)
-        
-        return array
-    
-    def __contains__(self, array_name: str):
-        return os.path.exists(self.get_array_path(array_name))
+from utils import NirvanaNpzDataWrapper
 
 
 class Dataset:

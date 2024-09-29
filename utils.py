@@ -140,3 +140,24 @@ def get_parameter_groups(model):
 def _check_dim_and_num_heads_consistency(dim, num_heads):
     if dim % num_heads != 0:
         raise ValueError('Dimension mismatch: hidden_dim should be a multiple of num_heads.')
+
+
+class NirvanaNpzDataWrapper:
+    """Mimics default numpy npz dictionary, as Nirvana automatically unpacks it to separate arrays."""
+
+    def __init__(self, root_path: str):
+        self.root_path = root_path
+
+    def get_array_path(self, array_name: str):
+        return os.path.join(self.root_path, f'{array_name}.npy')
+
+    def __getitem__(self, array_name: str):
+        array_path = self.get_array_path(array_name)
+
+        print(f"Accessing `{array_name}` array at {array_path}")
+        array = np.load(array_path, allow_pickle=True)
+
+        return array
+
+    def __contains__(self, array_name: str):
+        return os.path.exists(self.get_array_path(array_name))
