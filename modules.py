@@ -306,13 +306,6 @@ class FeaturesPreparatorForDeepModels(nn.Module):
                 shared_frequencies=plr_past_targets_shared_frequencies
             )
 
-            if use_plr_for_numerical_features:
-                past_targets_mask = past_targets_mask[~numerical_features_mask]
-                numerical_features_dim = numerical_features_mask.sum()
-                embedded_numerical_features_dim = numerical_features_dim * plr_numerical_features_embedding_dim
-                embedded_numerical_features_shift = torch.zeros(embedded_numerical_features_dim, dtype=bool)
-                past_targets_mask = torch.cat([embedded_numerical_features_shift, past_targets_mask], axis=0)
-
             self.register_buffer('past_targets_mask', past_targets_mask)
 
         self.output_dim = output_dim
@@ -321,12 +314,24 @@ class FeaturesPreparatorForDeepModels(nn.Module):
         if self.use_plr_for_numerical_features:
             x_numerical = x[..., self.numerical_features_mask]
             x_numerical_embedded = self.plr_embeddings_numerical_features(x_numerical).flatten(start_dim=-2)
-            x = torch.cat([x_numerical_embedded, x[..., ~self.numerical_features_mask]], axis=-1)
 
         if self.use_plr_for_past_targtes:
             x_targets = x[..., self.past_targets_mask]
             x_targets_embedded = self.plr_embeddings_past_targets(x_targets).flatten(start_dim=-2)
-            x = torch.cat([x_targets_embedded, x[..., ~self.past_targets_mask]], axis=-1)
+
+        if self.use_plr_for_numerical_features or self.use_plr_for_past_targtes:
+            if not self.use_plr_for_numerical_features:
+                x = [x_targets_embedded, x[..., ~self.past_targets_mask]]
+            elif not self.use_plr_for_past_targtes:
+                x = [x_numerical_embedded, x[..., ~self.numerical_features_mask]]
+            else:
+                x = [
+                    x_targets_embedded,
+                    x_numerical_embedded,
+                    x[..., ~(self.past_targets_mask | self.numerical_features_mask)]
+                ]
+
+            x = torch.cat(x, axis=-1)
 
         if self.use_learnable_node_embeddings:
             graph_batch_size = x.shape[0] // self.node_embeddings.weight.shape[0]
