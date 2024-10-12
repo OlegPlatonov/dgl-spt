@@ -93,13 +93,13 @@ def get_args():
                              'Only used if use_learnable_node_embeddings is True.')
 
     # Numerical features preprocessing.
-    parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
-                        choices=['mean', 'median', 'most_frequent'],
-                        help='Only used for datasets that have NaNs in spatial or spatiotemporal numerical features.')
     parser.add_argument('--numerical_features_transform', type=str, default='quantile-transform-normal',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
+    parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
+                        choices=['mean', 'median', 'most_frequent'],
+                        help='Only used for datasets that have NaNs in spatial or spatiotemporal numerical features.')
 
     # PLR embeddings for numerical features. Not used if model_class is Linear.
     parser.add_argument('--use_plr_for_numerical_features', default=False, action='store_true',
@@ -423,8 +423,8 @@ def main():
         do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
         use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
         initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
-        imputation_strategy_for_numerical_features=args.imputation_strategy_for_numerical_features,
         numerical_features_transform=args.numerical_features_transform,
+        imputation_strategy_for_numerical_features=args.imputation_strategy_for_numerical_features,
         train_batch_size=args.train_batch_size,
         eval_batch_size=args.eval_batch_size,
         eval_max_num_predictions_per_step=args.eval_max_num_predictions_per_step,
