@@ -1,4 +1,5 @@
 import os
+from functools import partial
 import numpy as np
 import pandas as pd
 import torch
@@ -11,15 +12,15 @@ from utils import NirvanaNpzDataWrapper
 
 class Dataset:
     transforms = {
-        'none': FunctionTransformer(func=lambda x: x, inverse_func=lambda x: x),
-        'standard-scaler': StandardScaler(copy=False),
-        'min-max-scaler': MinMaxScaler(),
-        'robust-scaler': RobustScaler(unit_variance=True),
-        'power-transform-yeo-johnson': PowerTransformer(method='yeo-johnson', standardize=True),
-        'quantile-transform-normal': QuantileTransformer(output_distribution='normal', subsample=1_000_000_000,
-                                                         random_state=0),
-        'quantile-transform-uniform': QuantileTransformer(output_distribution='uniform', subsample=1_000_000_000,
-                                                          random_state=0)
+        'none': partial(FunctionTransformer, func=lambda x: x, inverse_func=lambda x: x),
+        'standard-scaler': partial(StandardScaler, copy=False),
+        'min-max-scaler': partial(MinMaxScaler, clip=False, copy=False),
+        'robust-scaler': partial(RobustScaler, unit_variance=True, copy=False),
+        'power-transform-yeo-johnson': partial(PowerTransformer, method='yeo-johnson', standardize=True, copy=False),
+        'quantile-transform-normal': partial(QuantileTransformer, output_distribution='normal', subsample=None,
+                                             random_state=0, copy=False),
+        'quantile-transform-uniform': partial(QuantileTransformer, output_distribution='uniform', subsample=None,
+                                              random_state=0, copy=False)
     }
 
     def __init__(self, name_or_path, prediction_horizon=12, only_predict_at_end_of_horizon=False,
@@ -80,7 +81,7 @@ class Dataset:
         targets_for_features = targets.copy()
 
         # Transform targets that will be used for computing loss.
-        targets_for_loss_transform = self.transforms[targets_for_loss_transform]
+        targets_for_loss_transform = self.transforms[targets_for_loss_transform]()
         if transform_targets_for_loss_for_each_node_separately:
             targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps])
             targets_for_loss = targets_for_loss_transform.transform(targets_for_loss)
@@ -90,7 +91,7 @@ class Dataset:
                 .reshape(num_timestamps, num_nodes)
         print("Scaled targets for features")
         # Transform targets that will be used as features for the model.
-        targets_for_features_transform = self.transforms[targets_for_features_transform]
+        targets_for_features_transform = self.transforms[targets_for_features_transform]()
         if transform_targets_for_features_for_each_node_separately:
             targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps])
             targets_for_features = targets_for_features_transform.transform(targets_for_features)
@@ -188,7 +189,7 @@ class Dataset:
                 num_features = num_features.reshape(-1, num_features.shape[2])
 
                 # Transform numerical features.
-                num_features = self.transforms[num_features_transform].fit_transform(num_features)
+                num_features = self.transforms[num_features_transform]().fit_transform(num_features)
 
                 # breakpoint()
                 # Impute NaNs in numerical features.
