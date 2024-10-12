@@ -36,7 +36,7 @@ class Dataset:
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
-                 num_features_transform='none', imputation_strategy_for_num_features='most_frequent',
+                 numerical_features_transform='none', imputation_strategy_for_numerical_features='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False):
         if name_or_path.endswith('.npz'):
@@ -166,98 +166,99 @@ class Dataset:
             deepwalk_embeddings_for_initializing_learnable_embeddings = data['deepwalk_node_embeddings']\
                 .astype(np.float32)
 
-        num_feature_names_set = set(data['num_feature_names'])
-        bin_feature_names_set = set(data['bin_feature_names'])
-        cat_feature_names_set = set(data['cat_feature_names'])
+        numerical_feature_names_set = set(data['num_feature_names'])
+        binary_feature_names_set = set(data['bin_feature_names'])
+        categorical_feature_names_set = set(data['cat_feature_names'])
 
         features_groups = [temporal_features, spatial_features, spatiotemporal_features]
         feature_names_groups = [temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names]
-        num_features_masks_by_group = [None, None, None]
+        numerical_features_masks_by_group = [None, None, None]
         for features_group_idx, (features, feature_names) in enumerate(zip(features_groups, feature_names_groups)):
-            num_features_mask = np.zeros(features.shape[2], dtype=bool)
-            cat_features_mask = np.zeros(features.shape[2], dtype=bool)
+            numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
+            categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
             for i, feature_name in enumerate(feature_names):
-                if feature_name in num_feature_names_set:
-                    num_features_mask[i] = True
-                elif feature_name in cat_feature_names_set:
-                    cat_features_mask[i] = True
+                if feature_name in numerical_feature_names_set:
+                    numerical_features_mask[i] = True
+                elif feature_name in categorical_feature_names_set:
+                    categorical_features_mask[i] = True
 
             # Transform numerical features and impute NaNs in numerical features.
-            if num_features_mask.any():
-                num_features = features[:, :, num_features_mask]
-                num_features_orig_shape = num_features.shape
-                num_features = num_features.reshape(-1, num_features.shape[2])
+            if numerical_features_mask.any():
+                numerical_features = features[:, :, numerical_features_mask]
+                numerical_features_orig_shape = numerical_features.shape
+                numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
 
                 # Transform numerical features.
-                num_features = self.transforms[num_features_transform]().fit_transform(num_features)
+                numerical_features = self.transforms[numerical_features_transform]().fit_transform(numerical_features)
 
                 # breakpoint()
                 # Impute NaNs in numerical features.
-                if np.isnan(features[:, :, num_features_mask]).any():
-                    imputer = SimpleImputer(strategy=imputation_strategy_for_num_features, keep_empty_features=True)
-                    imputer.fit(num_features)
-                    num_features = imputer.transform(num_features)
+                if np.isnan(features[:, :, numerical_features_mask]).any():
+                    imputer = SimpleImputer(strategy=imputation_strategy_for_numerical_features,
+                                            keep_empty_features=True)
+                    numerical_features = imputer.fit_transform(numerical_features)
                     # Some features could be removed by imputer.
-                    num_features_orig_shape = (
-                        num_features_orig_shape[0], num_features_orig_shape[1], num_features.shape[-1]
+                    numerical_features_orig_shape = (
+                        numerical_features_orig_shape[0], numerical_features_orig_shape[1], numerical_features.shape[-1]
                     )
                 # breakpoint()
 
-                num_features = num_features.reshape(*num_features_orig_shape)
+                numerical_features = numerical_features.reshape(*numerical_features_orig_shape)
 
                 # Put transformed numerical features back into features array.
                 # breakpoint()
                 slow_idx = 0
                 for fast_idx in range(features.shape[2]):
-                    if num_features_mask[fast_idx]:
-                        features[:, :, fast_idx] = num_features[:, :, slow_idx]
+                    if numerical_features_mask[fast_idx]:
+                        features[:, :, fast_idx] = numerical_features[:, :, slow_idx]
                         slow_idx += 1
 
             # Apply one-hot encoding to categorical features.
-            if cat_features_mask.any():
-                cat_features = features[:, :, cat_features_mask]
-                cat_features_orig_shape = cat_features.shape
-                cat_features = cat_features.reshape(-1, cat_features.shape[2])
-                one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32).fit(cat_features)
-                cat_features_encoded = one_hot_encoder.transform(cat_features)
-                cat_features_encoded = cat_features_encoded.reshape(*cat_features_orig_shape[:2],
-                                                                    cat_features_encoded.shape[1])
+            if categorical_features_mask.any():
+                categorical_features = features[:, :, categorical_features_mask]
+                categorical_features_orig_shape = categorical_features.shape
+                categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
+                one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32).fit(categorical_features)
+                categorical_features_encoded = one_hot_encoder.transform(categorical_features)
+                categorical_features_encoded = categorical_features_encoded.reshape(
+                    *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
+                )
 
                 one_hot_encoder_output_feature_names = one_hot_encoder.get_feature_names_out(
-                    input_features=np.array(feature_names, dtype=object)[cat_features_mask]
+                    input_features=np.array(feature_names, dtype=object)[categorical_features_mask]
                 ).tolist()
 
                 # Change features array, feature names, and numerical features mask to include one-hot encoded
                 # categorical features.
                 features_new = []
                 feature_names_new = []
-                num_features_mask_new = []
+                numerical_features_mask_new = []
                 start_idx = 0
                 for i in range(features.shape[2]):
                     feature = features[:, :, i, None]
-                    if not cat_features_mask[i]:
+                    if not categorical_features_mask[i]:
                         features_new.append(feature)
                         feature_names_new.append(feature_names[i])
-                        num_features_mask_new.append(num_features_mask[i])
+                        numerical_features_mask_new.append(numerical_features_mask[i])
                     else:
                         num_categories = len(one_hot_encoder.categories_[i])
-                        feature = cat_features_encoded[:, :, start_idx:start_idx + num_categories]
+                        feature = categorical_features_encoded[:, :, start_idx:start_idx + num_categories]
                         features_new.append(feature)
                         feature_names_new += one_hot_encoder_output_feature_names[start_idx:start_idx + num_categories]
-                        num_features_mask_new += [False for _ in range(num_categories)]
+                        numerical_features_mask_new += [False for _ in range(num_categories)]
                         start_idx += num_categories
 
                 features = np.concatenate(features_new, axis=2)
                 feature_names = feature_names_new
-                num_features_mask = np.array(num_features_mask_new, dtype=bool)
+                numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
 
             features_groups[features_group_idx] = features
             feature_names_groups[features_group_idx] = feature_names
-            num_features_masks_by_group[features_group_idx] = num_features_mask
+            numerical_features_masks_by_group[features_group_idx] = numerical_features_mask
 
         temporal_features, spatial_features, spatiotemporal_features = features_groups
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
-        num_features_mask = np.concatenate(num_features_masks_by_group, axis=0)
+        numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
 
         # PREPARE GRAPH
 
@@ -355,9 +356,9 @@ class Dataset:
         past_targets_mask = np.zeros(features_dim, dtype=bool)
         past_targets_mask[:past_targets_features_dim] = True
 
-        num_features_mask_extentsion = np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim,
-                                                dtype=bool)
-        num_features_mask = np.concatenate([num_features_mask_extentsion, num_features_mask], axis=0)
+        numerical_features_mask_extentsion = np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim,
+                                                      dtype=bool)
+        numerical_features_mask = np.concatenate([numerical_features_mask_extentsion, numerical_features_mask], axis=0)
 
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO FUTURE TARGETS THAT WILL BE PREDICTED
 
@@ -456,7 +457,7 @@ class Dataset:
             self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.repeat(1, eval_batch_size, 1).to(device)
 
         # Might be used for applying numerical feature embeddings.
-        self.num_features_mask = torch.from_numpy(num_features_mask)
+        self.numerical_features_mask = torch.from_numpy(numerical_features_mask)
         self.past_targets_mask = torch.from_numpy(past_targets_mask)
 
         if initialize_learnable_node_embeddings_with_deepwalk:

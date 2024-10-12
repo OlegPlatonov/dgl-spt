@@ -250,9 +250,9 @@ class TransformerSequenceEncoderModule(nn.Module):
 class FeaturesPreparatorForDeepModels(nn.Module):
     def __init__(self, features_dim, use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
-                 use_plr_for_num_features, num_features_mask, plr_num_features_frequencies_dim,
-                 plr_num_features_frequencies_scale, plr_num_features_embedding_dim,
-                 plr_num_features_shared_linear, plr_num_features_shared_frequencies,
+                 use_plr_for_numerical_features, numerical_features_mask, plr_numerical_features_frequencies_dim,
+                 plr_numerical_features_frequencies_scale, plr_numerical_features_embedding_dim,
+                 plr_numerical_features_shared_linear, plr_numerical_features_shared_frequencies,
                  use_plr_for_past_targets, past_targets_mask, plr_past_targets_frequencies_dim,
                  plr_past_targets_frequencies_scale, plr_past_targets_embedding_dim,
                  plr_past_targets_shared_linear, plr_past_targets_shared_frequencies):
@@ -277,46 +277,51 @@ class FeaturesPreparatorForDeepModels(nn.Module):
                 self.node_embeddings = nn.Embedding(num_embeddings=num_nodes,
                                                     embedding_dim=learnable_node_embeddings_dim)
 
-        self.use_plr_for_num_features = use_plr_for_num_features
-        if use_plr_for_num_features:
-            num_features_dim = num_features_mask.sum()
-            output_dim = output_dim - num_features_dim + num_features_dim * plr_num_features_embedding_dim
-            self.plr_embeddings_num_features = PLREmbeddings(features_dim=num_features_dim,
-                                                             frequencies_dim=plr_num_features_frequencies_dim,
-                                                             frequencies_scale=plr_num_features_frequencies_scale,
-                                                             embedding_dim=plr_num_features_embedding_dim,
-                                                             shared_linear=plr_num_features_shared_linear,
-                                                             shared_frequencies=plr_num_features_shared_frequencies)
+        self.use_plr_for_numerical_features = use_plr_for_numerical_features
+        if use_plr_for_numerical_features:
+            numerical_features_dim = numerical_features_mask.sum()
+            output_dim = output_dim - numerical_features_dim + \
+                         (numerical_features_dim * plr_numerical_features_embedding_dim)
+            self.plr_embeddings_numerical_features = PLREmbeddings(
+                features_dim=numerical_features_dim,
+                frequencies_dim=plr_numerical_features_frequencies_dim,
+                frequencies_scale=plr_numerical_features_frequencies_scale,
+                embedding_dim=plr_numerical_features_embedding_dim,
+                shared_linear=plr_numerical_features_shared_linear,
+                shared_frequencies=plr_numerical_features_shared_frequencies
+            )
 
-            self.register_buffer('num_features_mask', num_features_mask)
+            self.register_buffer('numerical_features_mask', numerical_features_mask)
 
         self.use_plr_for_past_targtes = use_plr_for_past_targets
         if use_plr_for_past_targets:
             past_targets_dim = past_targets_mask.sum()
             output_dim = output_dim - past_targets_dim + past_targets_dim * plr_past_targets_embedding_dim
-            self.plr_embeddings_past_targets = PLREmbeddings(features_dim=past_targets_dim,
-                                                             frequencies_dim=plr_past_targets_frequencies_dim,
-                                                             frequencies_scale=plr_past_targets_frequencies_scale,
-                                                             embedding_dim=plr_past_targets_embedding_dim,
-                                                             shared_linear=plr_past_targets_shared_linear,
-                                                             shared_frequencies=plr_past_targets_shared_frequencies)
+            self.plr_embeddings_past_targets = PLREmbeddings(
+                features_dim=past_targets_dim,
+                frequencies_dim=plr_past_targets_frequencies_dim,
+                frequencies_scale=plr_past_targets_frequencies_scale,
+                embedding_dim=plr_past_targets_embedding_dim,
+                shared_linear=plr_past_targets_shared_linear,
+                shared_frequencies=plr_past_targets_shared_frequencies
+            )
 
-            if use_plr_for_num_features:
-                past_targets_mask = past_targets_mask[~num_features_mask]
-                num_features_dim = num_features_mask.sum()
-                embedded_num_features_dim = num_features_dim * plr_num_features_embedding_dim
-                embedded_num_features_shift = torch.zeros(embedded_num_features_dim, dtype=bool)
-                past_targets_mask = torch.cat([embedded_num_features_shift, past_targets_mask], axis=0)
+            if use_plr_for_numerical_features:
+                past_targets_mask = past_targets_mask[~numerical_features_mask]
+                numerical_features_dim = numerical_features_mask.sum()
+                embedded_numerical_features_dim = numerical_features_dim * plr_numerical_features_embedding_dim
+                embedded_numerical_features_shift = torch.zeros(embedded_numerical_features_dim, dtype=bool)
+                past_targets_mask = torch.cat([embedded_numerical_features_shift, past_targets_mask], axis=0)
 
             self.register_buffer('past_targets_mask', past_targets_mask)
 
         self.output_dim = output_dim
 
     def forward(self, x):
-        if self.use_plr_for_num_features:
-            x_num = x[..., self.num_features_mask]
-            x_num_embedded = self.plr_embeddings_num_features(x_num).flatten(start_dim=-2)
-            x = torch.cat([x_num_embedded, x[..., ~self.num_features_mask]], axis=-1)
+        if self.use_plr_for_numerical_features:
+            x_numerical = x[..., self.numerical_features_mask]
+            x_numerical_embedded = self.plr_embeddings_numerical_features(x_numerical).flatten(start_dim=-2)
+            x = torch.cat([x_numerical_embedded, x[..., ~self.numerical_features_mask]], axis=-1)
 
         if self.use_plr_for_past_targtes:
             x_targets = x[..., self.past_targets_mask]

@@ -102,18 +102,18 @@ def get_args():
                                  'quantile-transform-uniform'])
 
     # PLR embeddings for numerical features. Not used if model_class is Linear.
-    parser.add_argument('--use_plr_for_num_features', default=False, action='store_true',
+    parser.add_argument('--use_plr_for_numerical_features', default=False, action='store_true',
                         help='Apply PLR embeddings to numerical features.')
-    parser.add_argument('--plr_num_features_frequencies_dim', type=int, default=48,
-                        help='Only used if plr_num_features is True.')
-    parser.add_argument('--plr_num_features_frequencies_scale', type=float, default=0.01,
-                        help='Only used if plr_num_features is True.')
-    parser.add_argument('--plr_num_features_embedding_dim', type=int, default=16,
-                        help='Only used if plr_num_features is True.')
-    parser.add_argument('--plr_num_features_shared_linear', default=False, action='store_true',
-                        help='Only used if plr_num_features is True.')
-    parser.add_argument('--plr_num_features_shared_frequencies', default=False, action='store_true',
-                        help='Only used if plr_num_features is True.')
+    parser.add_argument('--plr_numerical_features_frequencies_dim', type=int, default=48,
+                        help='Only used if plr_numerical_features is True.')
+    parser.add_argument('--plr_numerical_features_frequencies_scale', type=float, default=0.01,
+                        help='Only used if plr_numerical_features is True.')
+    parser.add_argument('--plr_numerical_features_embedding_dim', type=int, default=16,
+                        help='Only used if plr_numerical_features is True.')
+    parser.add_argument('--plr_numerical_features_shared_linear', default=False, action='store_true',
+                        help='Only used if plr_numerical_features is True.')
+    parser.add_argument('--plr_numerical_features_shared_frequencies', default=False, action='store_true',
+                        help='Only used if plr_numerical_features is True.')
 
     # PLR embeddings for past targets. Not used if model_class is Linear.
     parser.add_argument('--use_plr_for_past_targets', default=False, action='store_true',
@@ -423,8 +423,8 @@ def main():
         do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
         use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
         initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
-        imputation_strategy_for_num_features=args.imputation_strategy_for_numerical_features,
-        num_features_transform=args.numerical_features_transform,
+        imputation_strategy_for_numerical_features=args.imputation_strategy_for_numerical_features,
+        numerical_features_transform=args.numerical_features_transform,
         train_batch_size=args.train_batch_size,
         eval_batch_size=args.eval_batch_size,
         eval_max_num_predictions_per_step=args.eval_max_num_predictions_per_step,
@@ -464,13 +464,13 @@ def main():
             learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
             initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
             deepwalk_node_embeddings=dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
-            use_plr_for_num_features=args.use_plr_for_num_features,
-            num_features_mask=dataset.num_features_mask,
-            plr_num_features_frequencies_dim=args.plr_num_features_frequencies_dim,
-            plr_num_features_frequencies_scale=args.plr_num_features_frequencies_scale,
-            plr_num_features_embedding_dim=args.plr_num_features_embedding_dim,
-            plr_num_features_shared_linear=args.plr_num_features_shared_linear,
-            plr_num_features_shared_frequencies=args.plr_num_features_shared_frequencies,
+            use_plr_for_numerical_features=args.use_plr_for_numerical_features,
+            numerical_features_mask=dataset.numerical_features_mask,
+            plr_numerical_features_frequencies_dim=args.plr_numerical_features_frequencies_dim,
+            plr_numerical_features_frequencies_scale=args.plr_numerical_features_frequencies_scale,
+            plr_numerical_features_embedding_dim=args.plr_numerical_features_embedding_dim,
+            plr_numerical_features_shared_linear=args.plr_numerical_features_shared_linear,
+            plr_numerical_features_shared_frequencies=args.plr_numerical_features_shared_frequencies,
             use_plr_for_past_targets=args.use_plr_for_past_targets,
             past_targets_mask=dataset.past_targets_mask,
             plr_past_targets_frequencies_dim=args.plr_past_targets_frequencies_dim,
