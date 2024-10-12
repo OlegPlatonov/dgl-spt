@@ -268,7 +268,7 @@ class FeaturesPreparatorForDeepModels(nn.Module):
                     raise ValueError(f'initialize_learnable_node_embeddings_with_deepwalk argument is True, but the '
                                      f'value of learnable_node_embeddings_dim argument does not match the dimension of '
                                      f'the precomputed DeepWalk node embeddings: '
-                                     f'{learnable_node_embeddings_dim} != {deepwalk_node_embeddings.shape[1]}')
+                                     f'{learnable_node_embeddings_dim} != {deepwalk_node_embeddings.shape[1]}.')
 
                 self.node_embeddings = nn.Embedding(num_embeddings=num_nodes,
                                                     embedding_dim=learnable_node_embeddings_dim,
