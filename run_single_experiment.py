@@ -71,9 +71,9 @@ def get_args():
 
     # NaN value imputation applied to targets that will be used for features (targets from past timestamps and current
     # timestamp).
-    parser.add_argument('--imputation_startegy_for_nan_targets_for_features', type=str, default='prev',
+    parser.add_argument('--targets_for_features_nan_imputation_strategy', type=str, default='prev',
                         choices=['prev', 'zero'])
-    parser.add_argument('--add_indicators_of_nan_targets_to_features', default=False, action='store_true')
+    parser.add_argument('--add_nan_indicators_to_targets_for_features', default=False, action='store_true')
 
     # Drop unwanted node features.
     parser.add_argument('--do_not_use_temporal_features', default=False, action='store_true')
@@ -97,7 +97,7 @@ def get_args():
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
-    parser.add_argument('--imputation_strategy_for_numerical_features', type=str, default='most_frequent',
+    parser.add_argument('--numerical_features_nan_imputation_strategy', type=str, default='most_frequent',
                         choices=['mean', 'median', 'most_frequent'],
                         help='Only used for datasets that have NaNs in spatial or spatiotemporal numerical features.')
 
@@ -416,15 +416,15 @@ def main():
         targets_for_features_transform=args.targets_for_features_transform,
         transform_targets_for_features_for_each_node_separately=\
             args.transform_targets_for_features_for_each_node_separately,
-        imputation_startegy_for_nan_targets_for_features=args.imputation_startegy_for_nan_targets_for_features,
-        add_indicators_of_nan_targets_to_features=args.add_indicators_of_nan_targets_to_features,
+        targets_for_features_nan_imputation_strategy=args.targets_for_features_nan_imputation_strategy,
+        add_nan_indicators_to_targets_for_features=args.add_nan_indicators_to_targets_for_features,
         do_not_use_temporal_features=args.do_not_use_temporal_features,
         do_not_use_spatial_features=args.do_not_use_spatial_features,
         do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
         use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
         initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
         numerical_features_transform=args.numerical_features_transform,
-        imputation_strategy_for_numerical_features=args.imputation_strategy_for_numerical_features,
+        numerical_features_nan_imputation_strategy=args.numerical_features_nan_imputation_strategy,
         train_batch_size=args.train_batch_size,
         eval_batch_size=args.eval_batch_size,
         eval_max_num_predictions_per_step=args.eval_max_num_predictions_per_step,

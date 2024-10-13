@@ -31,12 +31,11 @@ class Dataset:
                  add_self_loops=False,
                  targets_for_loss_transform='none', transform_targets_for_loss_for_each_node_separately=False,
                  targets_for_features_transform='none', transform_targets_for_features_for_each_node_separately=False,
-                 imputation_startegy_for_nan_targets_for_features='prev',
-                 add_indicators_of_nan_targets_to_features=False,
+                 targets_for_features_nan_imputation_strategy='prev', add_nan_indicators_to_targets_for_features=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
                  initialize_learnable_node_embeddings_with_deepwalk=False,
-                 numerical_features_transform='none', imputation_strategy_for_numerical_features='most_frequent',
+                 numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False):
         if name_or_path.endswith('.npz'):
@@ -102,7 +101,7 @@ class Dataset:
         print("Scaled targets for targets")
 
         # Impute NaNs in targets.
-        if imputation_startegy_for_nan_targets_for_features == 'prev':
+        if targets_for_features_nan_imputation_strategy == 'prev':
             if targets_nan_mask[all_train_targets_timestamps].all(axis=0).any():
                 raise RuntimeError(
                     'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
@@ -123,12 +122,12 @@ class Dataset:
 
             targets_for_features = targets_for_features_df.values
 
-        elif imputation_startegy_for_nan_targets_for_features == 'zero':
+        elif targets_for_features_nan_imputation_strategy == 'zero':
             targets_for_features[targets_nan_mask] = 0
 
         else:
-            raise ValueError(f'Unsupported value for imputation_strategy_for_nan_targets: '
-                             f'{imputation_startegy_for_nan_targets_for_features}.')
+            raise ValueError(f'Unsupported value for targets_for_features_nan_imputation_strategy: '
+                             f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
 
         # PREPARE FEATURES
 
@@ -194,7 +193,7 @@ class Dataset:
                 # breakpoint()
                 # Impute NaNs in numerical features.
                 if np.isnan(features[:, :, numerical_features_mask]).any():
-                    imputer = SimpleImputer(strategy=imputation_strategy_for_numerical_features,
+                    imputer = SimpleImputer(strategy=numerical_features_nan_imputation_strategy,
                                             keep_empty_features=True)
                     numerical_features = imputer.fit_transform(numerical_features)
                     # Some features could be removed by imputer.
@@ -348,7 +347,7 @@ class Dataset:
             past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
 
         past_targets_features_dim = 1 if provide_sequnce_inputs else len(past_timestamp_shifts_for_features)
-        past_targets_nan_mask_features_dim = past_targets_features_dim * add_indicators_of_nan_targets_to_features
+        past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
                         deepwalk_embeddings.shape[2])
@@ -435,7 +434,7 @@ class Dataset:
         self.targets_for_loss = torch.from_numpy(targets_for_loss)
         self.targets_for_features = torch.from_numpy(targets_for_features)
         self.targets_nan_mask = torch.from_numpy(targets_nan_mask)
-        self.add_indicators_of_nan_targets_to_features = add_indicators_of_nan_targets_to_features
+        self.add_nan_indicators_to_targets_for_features = add_nan_indicators_to_targets_for_features
         self.targets_for_loss_transform = targets_for_loss_transform
         self.transform_targets_for_loss_for_each_node_separately = transform_targets_for_loss_for_each_node_separately
 
@@ -496,7 +495,7 @@ class Dataset:
 
         past_targets = self.targets_for_features[past_timestamps].to(self.device).T
 
-        if self.add_indicators_of_nan_targets_to_features:
+        if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device)
             past_targets_nan_mask[negative_mask] = 1
             past_targets_nan_mask = past_targets_nan_mask.T
@@ -518,7 +517,7 @@ class Dataset:
 
         past_targets = self.targets_for_features[past_timestamps].to(self.device).T.unsqueeze(-1)
 
-        if self.add_indicators_of_nan_targets_to_features:
+        if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device).T.unsqueeze(-1)
         else:
             past_targets_nan_mask = torch.empty(self.num_nodes, self.seq_len, 0, device=self.device)
@@ -568,7 +567,7 @@ class Dataset:
         past_targets = self.targets_for_features[past_timestamps].to(self.device).transpose(1, 2)\
             .flatten(start_dim=0, end_dim=1)
 
-        if self.add_indicators_of_nan_targets_to_features:
+        if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device)
             past_targets_nan_mask[negative_mask] = 1
             past_targets_nan_mask = past_targets_nan_mask.transpose(1, 2).flatten(start_dim=0, end_dim=1)
@@ -609,7 +608,7 @@ class Dataset:
         past_targets = self.targets_for_features[past_timestamps].to(self.device).transpose(1, 2)\
             .flatten(start_dim=0, end_dim=1).unsqueeze(-1)
 
-        if self.add_indicators_of_nan_targets_to_features:
+        if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].to(self.device).transpose(1, 2)\
                 .flatten(start_dim=0, end_dim=1).unsqueeze(-1)
         else:
