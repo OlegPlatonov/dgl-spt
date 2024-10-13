@@ -99,7 +99,10 @@ def get_args():
                                  'quantile-transform-uniform'])
     parser.add_argument('--numerical_features_nan_imputation_strategy', type=str, default='most_frequent',
                         choices=['mean', 'median', 'most_frequent'],
-                        help='Only used for datasets that have NaNs in spatial or spatiotemporal numerical features.')
+                        help='NaN imputation for numerical features. Imputation is done based on spatial statistics '
+                             'and is thus only performed for spatial and spatiotemporal numerical features, but not '
+                             'for temporal numerical features. It is expected that temporal numerical features have '
+                             'no NaNs.')
 
     # PLR embeddings for numerical features. Not used if model_class is Linear.
     parser.add_argument('--use_plr_for_numerical_features', default=False, action='store_true',

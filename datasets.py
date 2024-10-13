@@ -184,28 +184,27 @@ class Dataset:
             # Transform numerical features and impute NaNs in numerical features.
             if numerical_features_mask.any():
                 numerical_features = features[:, :, numerical_features_mask]
-                numerical_features_orig_shape = numerical_features.shape
-                numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
 
                 # Transform numerical features.
+                numerical_features_orig_shape = numerical_features.shape
+                numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
                 numerical_features = self.transforms[numerical_features_transform]().fit_transform(numerical_features)
-
-                # breakpoint()
-                # Impute NaNs in numerical features.
-                if np.isnan(features[:, :, numerical_features_mask]).any():
-                    imputer = SimpleImputer(strategy=numerical_features_nan_imputation_strategy,
-                                            keep_empty_features=True)
-                    numerical_features = imputer.fit_transform(numerical_features)
-                    # Some features could be removed by imputer.
-                    numerical_features_orig_shape = (
-                        numerical_features_orig_shape[0], numerical_features_orig_shape[1], numerical_features.shape[-1]
-                    )
-                # breakpoint()
-
                 numerical_features = numerical_features.reshape(*numerical_features_orig_shape)
 
-                # Put transformed numerical features back into features array.
-                # breakpoint()
+                # Impute NaNs in numerical features. Note that NaNs are imputed based on spatial statistics, and are
+                # thus not imputed for temporal features (features_group_idx == 0). It is expected that temporal
+                # features do not have NaNs.
+                if features_group_idx != 0 and np.isnan(numerical_features).any():
+                    numerical_features = numerical_features.transpose(1, 0, 2)
+                    numerical_features_transposed_shape = numerical_features.shape
+                    numerical_features = numerical_features.reshape(numerical_features_transposed_shape[0], -1)
+                    imputer = SimpleImputer(missing_values=np.nan, strategy=numerical_features_nan_imputation_strategy,
+                                            copy=False)
+                    numerical_features = imputer.fit_transform(numerical_features)
+                    numerical_features = numerical_features.reshape(*numerical_features_transposed_shape)
+                    numerical_features = numerical_features.transpose(1, 0, 2)
+
+                # Put transformed and imputed numerical features back into features array.
                 slow_idx = 0
                 for fast_idx in range(features.shape[2]):
                     if numerical_features_mask[fast_idx]:
