@@ -282,6 +282,7 @@ class FeaturesPreparatorForDeepModels(nn.Module):
             numerical_features_dim = numerical_features_mask.sum()
             output_dim = output_dim - numerical_features_dim + \
                          (numerical_features_dim * plr_numerical_features_embedding_dim)
+            self.register_buffer('numerical_features_mask', numerical_features_mask)
             self.plr_embeddings_numerical_features = PLREmbeddings(
                 features_dim=numerical_features_dim,
                 frequencies_dim=plr_numerical_features_frequencies_dim,
@@ -291,12 +292,11 @@ class FeaturesPreparatorForDeepModels(nn.Module):
                 shared_frequencies=plr_numerical_features_shared_frequencies
             )
 
-            self.register_buffer('numerical_features_mask', numerical_features_mask)
-
         self.use_plr_for_past_targtes = use_plr_for_past_targets
         if use_plr_for_past_targets:
             past_targets_dim = past_targets_mask.sum()
             output_dim = output_dim - past_targets_dim + past_targets_dim * plr_past_targets_embedding_dim
+            self.register_buffer('past_targets_mask', past_targets_mask)
             self.plr_embeddings_past_targets = PLREmbeddings(
                 features_dim=past_targets_dim,
                 frequencies_dim=plr_past_targets_frequencies_dim,
@@ -305,8 +305,6 @@ class FeaturesPreparatorForDeepModels(nn.Module):
                 shared_linear=plr_past_targets_shared_linear,
                 shared_frequencies=plr_past_targets_shared_frequencies
             )
-
-            self.register_buffer('past_targets_mask', past_targets_mask)
 
         self.output_dim = output_dim
 
