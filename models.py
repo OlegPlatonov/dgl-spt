@@ -11,9 +11,8 @@ If the model takes as input information about a sequence of timestamps, that is,
 from abc import ABC, ABCMeta
 import torch
 from torch import nn
-from modules import (ResidualModulesWrapper, FeedForwardModule,
-                     NEIGHBORHOOD_AGGREGATION_MODULES, SEQUENCE_ENCODER_MODULES, NORMALIZATION_MODULES,
-                     FeaturesPreparatorForDeepModels)
+from modules import (FeaturesPreparatorForDeepModels, ResidualModulesWrapper, FeedForwardModule,
+                     NEIGHBORHOOD_AGGREGATION_MODULES, SEQUENCE_ENCODER_MODULES, NORMALIZATION_MODULES)
 
 
 class ModelRegistry(ABCMeta):

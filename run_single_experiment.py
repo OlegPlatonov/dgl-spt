@@ -5,8 +5,8 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import TensorDataset, DataLoader
 
-from models import ModelRegistry
 from datasets import Dataset
+from models import ModelRegistry
 from utils import Logger, get_parameter_groups
 
 
