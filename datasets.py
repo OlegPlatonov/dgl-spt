@@ -216,8 +216,8 @@ class Dataset:
                 categorical_features = features[:, :, categorical_features_mask]
                 categorical_features_orig_shape = categorical_features.shape
                 categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
-                one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32).fit(categorical_features)
-                categorical_features_encoded = one_hot_encoder.transform(categorical_features)
+                one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
+                categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
                 categorical_features_encoded = categorical_features_encoded.reshape(
                     *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
                 )
