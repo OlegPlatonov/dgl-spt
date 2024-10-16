@@ -28,9 +28,7 @@ class Dataset:
                  seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
                  drop_early_train_timestamps='direct',
                  reverse_edges=False, to_undirected=False, use_forward_and_reverse_edges_as_different_edge_types=False,
-                 add_self_loops=False,
-                 targets_for_loss_transform='none', transform_targets_for_loss_for_each_node_separately=False,
-                 targets_for_features_transform='none', transform_targets_for_features_for_each_node_separately=False,
+                 add_self_loops=False, targets_for_loss_transform='none', targets_for_features_transform='none',
                  targets_for_features_nan_imputation_strategy='prev', add_nan_indicators_to_targets_for_features=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
                  do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
@@ -81,23 +79,15 @@ class Dataset:
 
         # Transform targets that will be used for computing loss.
         targets_for_loss_transform = self.transforms[targets_for_loss_transform]()
-        if transform_targets_for_loss_for_each_node_separately:
-            targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps])
-            targets_for_loss = targets_for_loss_transform.transform(targets_for_loss)
-        else:
-            targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps].reshape(-1, 1))
-            targets_for_loss = targets_for_loss_transform.transform(targets.reshape(-1, 1))\
-                .reshape(num_timestamps, num_nodes)
+        targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps].reshape(-1, 1))
+        targets_for_loss = targets_for_loss_transform.transform(targets.reshape(-1, 1))\
+            .reshape(num_timestamps, num_nodes)
         print("Scaled targets for features")
         # Transform targets that will be used as features for the model.
         targets_for_features_transform = self.transforms[targets_for_features_transform]()
-        if transform_targets_for_features_for_each_node_separately:
-            targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps])
-            targets_for_features = targets_for_features_transform.transform(targets_for_features)
-        else:
-            targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps].reshape(-1, 1))
-            targets_for_features = targets_for_features_transform.transform(targets_for_features.reshape(-1, 1))\
-                .reshape(num_timestamps, num_nodes)
+        targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps].reshape(-1, 1))
+        targets_for_features = targets_for_features_transform.transform(targets_for_features.reshape(-1, 1))\
+            .reshape(num_timestamps, num_nodes)
         print("Scaled targets for targets")
 
         # Impute NaNs in targets.
@@ -435,7 +425,6 @@ class Dataset:
         self.targets_nan_mask = torch.from_numpy(targets_nan_mask)
         self.add_nan_indicators_to_targets_for_features = add_nan_indicators_to_targets_for_features
         self.targets_for_loss_transform = targets_for_loss_transform
-        self.transform_targets_for_loss_for_each_node_separately = transform_targets_for_loss_for_each_node_separately
 
         self.temporal_features = torch.from_numpy(temporal_features)
         self.temporal_feature_names = temporal_feature_names
@@ -664,27 +653,12 @@ class Dataset:
         return features, targets, targets_nan_mask
 
     def transform_preds_for_metrics(self, preds):
-        if self.transform_targets_for_loss_for_each_node_separately:
-            if self.targets_dim == 1:
-                preds = preds.numpy()
-                preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
-                preds_for_metrics = torch.tensor(preds_for_metrics)
-            else:
-                preds = preds.transpose(1, 2)
-                shape = preds.shape
-                preds = preds.reshape(-1, self.num_nodes)
-                preds = preds.numpy()
-                preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
-                preds_for_metrics = torch.tensor(preds_for_metrics)
-                preds_for_metrics = preds_for_metrics.reshape(*shape)
-                preds_for_metrics = preds_for_metrics.transpose(1, 2)
-        else:
-            shape = preds.shape
-            preds = preds.reshape(-1, 1)
-            preds = preds.numpy()
-            preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
-            preds_for_metrics = torch.tensor(preds_for_metrics)
-            preds_for_metrics = preds_for_metrics.reshape(*shape)
+        shape = preds.shape
+        preds = preds.reshape(-1, 1)
+        preds = preds.numpy()
+        preds_for_metrics = self.targets_for_loss_transform.inverse_transform(preds)
+        preds_for_metrics = torch.tensor(preds_for_metrics)
+        preds_for_metrics = preds_for_metrics.reshape(*shape)
 
         return preds_for_metrics
 

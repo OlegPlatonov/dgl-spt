@@ -58,7 +58,6 @@ def get_args():
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
-    parser.add_argument('--transform_targets_for_loss_for_each_node_separately', default=False, action='store_true')
 
     # Transformation applied to targets that will be used as features for the model (targets from past timestamps and
     # current timestamp).
@@ -66,8 +65,6 @@ def get_args():
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
-    parser.add_argument('--transform_targets_for_features_for_each_node_separately', default=False,
-                        action='store_true')
 
     # NaN value imputation applied to targets that will be used for features (targets from past timestamps and current
     # timestamp).
@@ -415,10 +412,7 @@ def main():
             args.use_forward_and_reverse_edges_as_different_edge_types,
         add_self_loops=args.do_not_separate_ego_node_representation,
         targets_for_loss_transform=args.targets_for_loss_transform,
-        transform_targets_for_loss_for_each_node_separately=args.transform_targets_for_loss_for_each_node_separately,
         targets_for_features_transform=args.targets_for_features_transform,
-        transform_targets_for_features_for_each_node_separately=\
-            args.transform_targets_for_features_for_each_node_separately,
         targets_for_features_nan_imputation_strategy=args.targets_for_features_nan_imputation_strategy,
         add_nan_indicators_to_targets_for_features=args.add_nan_indicators_to_targets_for_features,
         do_not_use_temporal_features=args.do_not_use_temporal_features,
