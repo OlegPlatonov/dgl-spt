@@ -190,12 +190,13 @@ class Dataset:
                 # features do not have NaNs.
                 if features_group_idx != 0 and np.isnan(numerical_features).any():
                     numerical_features = numerical_features.transpose(1, 0, 2)
+                    numerical_features_imputer = SimpleImputer(missing_values=np.nan,
+                                                               strategy=numerical_features_nan_imputation_strategy,
+                                                               copy=False)
                     numerical_features_transposed_shape = numerical_features.shape
-                    numerical_features = numerical_features.reshape(numerical_features_transposed_shape[0], -1)
-                    imputer = SimpleImputer(missing_values=np.nan, strategy=numerical_features_nan_imputation_strategy,
-                                            copy=False)
-                    numerical_features = imputer.fit_transform(numerical_features)
-                    numerical_features = numerical_features.reshape(*numerical_features_transposed_shape)
+                    numerical_features = numerical_features_imputer.fit_transform(
+                        numerical_features.reshape(numerical_features.shape[0], -1)
+                    ).reshape(*numerical_features_transposed_shape)
                     numerical_features = numerical_features.transpose(1, 0, 2)
 
                 # Put transformed and imputed numerical features back into features array.
