@@ -176,10 +176,14 @@ class Dataset:
                 numerical_features = features[:, :, numerical_features_mask]
 
                 # Transform numerical features.
+                numerical_features_transform = self.transforms[numerical_features_transform]()
+                numerical_features_transform.fit(
+                    numerical_features[all_train_targets_timestamps].reshape(-1, numerical_features.shape[2])
+                )
                 numerical_features_orig_shape = numerical_features.shape
-                numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
-                numerical_features = self.transforms[numerical_features_transform]().fit_transform(numerical_features)
-                numerical_features = numerical_features.reshape(*numerical_features_orig_shape)
+                numerical_features = numerical_features_transform.transform(
+                    numerical_features.reshape(-1, numerical_features.shape[2])
+                ).reshape(*numerical_features_orig_shape)
 
                 # Impute NaNs in numerical features. Note that NaNs are imputed based on spatial statistics, and are
                 # thus not imputed for temporal features (features_group_idx == 0). It is expected that temporal
