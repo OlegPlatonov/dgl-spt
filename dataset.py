@@ -48,12 +48,15 @@ class Dataset:
 
         # GET TIME SPLITS
 
-        # Timestamp indices of all targets available for a particular split. Note that the number of timestamps
-        # at which predictions can be made for a particular split will be different because it also depends on
-        # prediction horizon (and, for train split, it also depends on lookback horizon).
-        all_train_targets_timestamps = data['train_timestamps']
-        all_val_targets_timestamps = data['val_timestamps']
-        all_test_targets_timestamps = data['test_timestamps']
+        # Indices of all timestamps available for a particular split. Note that the number of timestamps at which
+        # predictions can be made for a particular split will be different because it also depends on prediction
+        # horizon (and, for train split, it also depends on lookback horizon). I.e., we cannot train on the last few
+        # timestamps from the train split because the targets that should be predicted at these timestamps actually
+        # belong (at least partly) to the val split. Indices of timestamps at which predictions can be made for
+        # a particular split will be created later.
+        all_train_timestamps = data['train_timestamps']
+        all_val_timestamps = data['val_timestamps']
+        all_test_timestamps = data['test_timestamps']
 
         # PREPARE TARGETS
 
@@ -79,20 +82,20 @@ class Dataset:
 
         # Transform targets that will be used for computing loss.
         targets_for_loss_transform = self.transforms[targets_for_loss_transform]()
-        targets_for_loss_transform.fit(targets_for_loss[all_train_targets_timestamps].reshape(-1, 1))
+        targets_for_loss_transform.fit(targets_for_loss[all_train_timestamps].reshape(-1, 1))
         targets_for_loss = targets_for_loss_transform.transform(targets.reshape(-1, 1))\
             .reshape(num_timestamps, num_nodes)
         print("Scaled targets for features")
         # Transform targets that will be used as features for the model.
         targets_for_features_transform = self.transforms[targets_for_features_transform]()
-        targets_for_features_transform.fit(targets_for_features[all_train_targets_timestamps].reshape(-1, 1))
+        targets_for_features_transform.fit(targets_for_features[all_train_timestamps].reshape(-1, 1))
         targets_for_features = targets_for_features_transform.transform(targets_for_features.reshape(-1, 1))\
             .reshape(num_timestamps, num_nodes)
         print("Scaled targets for targets")
 
         # Impute NaNs in targets.
         if targets_for_features_nan_imputation_strategy == 'prev':
-            if targets_nan_mask[all_train_targets_timestamps].all(axis=0).any():
+            if targets_nan_mask[all_train_timestamps].all(axis=0).any():
                 raise RuntimeError(
                     'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
                     'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
@@ -178,7 +181,7 @@ class Dataset:
                 # Transform numerical features.
                 numerical_features_transform = self.transforms[numerical_features_transform]()
                 numerical_features_transform.fit(
-                    numerical_features[all_train_targets_timestamps].reshape(-1, numerical_features.shape[2])
+                    numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
                 )
                 numerical_features_orig_shape = numerical_features.shape
                 numerical_features = numerical_features_transform.transform(
@@ -381,18 +384,18 @@ class Dataset:
 
         max_prediction_shift = future_timestamp_shifts_for_prediction[-1]
 
-        train_timestamps = all_train_targets_timestamps[first_train_timestamp:-max_prediction_shift]
+        train_timestamps = all_train_timestamps[first_train_timestamp:-max_prediction_shift]
 
         val_timestamps = np.concatenate(
-            [np.array([all_train_targets_timestamps[-1]]), all_val_targets_timestamps[:-max_prediction_shift]], axis=0
+            [np.array([all_train_timestamps[-1]]), all_val_timestamps[:-max_prediction_shift]], axis=0
         )
 
         test_timestamps = np.concatenate(
-            [np.array([all_val_targets_timestamps[-1]]), all_test_targets_timestamps[:-max_prediction_shift]], axis=0
+            [np.array([all_val_timestamps[-1]]), all_test_timestamps[:-max_prediction_shift]], axis=0
         )
 
         # Remove train timestamps for which all targets are NaNs.
-        train_targets_nan_mask = targets_nan_mask[all_train_targets_timestamps[first_train_timestamp + 1:]]
+        train_targets_nan_mask = targets_nan_mask[all_train_timestamps[first_train_timestamp + 1:]]
         if only_predict_at_end_of_horizon or prediction_horizon == 1:
             # In this case max_prediction_shift is the only prediction shift.
             # Transform train_targets_nan_mask to shape [len(train_timestamps), num_nodes].
@@ -416,10 +419,12 @@ class Dataset:
         self.num_timestamps = num_timestamps
         self.num_nodes = num_nodes
 
-        self.all_train_targets_timestamps = torch.from_numpy(all_train_targets_timestamps)
-        self.all_val_targets_timestamps = torch.from_numpy(all_val_targets_timestamps)
-        self.all_test_targets_timestamps = torch.from_numpy(all_test_targets_timestamps)
+        # Indices of all timestamps available for a particular split.
+        self.all_train_timestamps = torch.from_numpy(all_train_timestamps)
+        self.all_val_timestamps = torch.from_numpy(all_val_timestamps)
+        self.all_test_timestamps = torch.from_numpy(all_test_timestamps)
 
+        # Indices of timestamps at which predictions can be made for a particular split.
         self.train_timestamps = torch.from_numpy(train_timestamps)
         self.val_timestamps = torch.from_numpy(val_timestamps)
         self.test_timestamps = torch.from_numpy(test_timestamps)
@@ -668,16 +673,16 @@ class Dataset:
         return preds_for_metrics
 
     def get_val_targets_for_metrics(self):
-        targets = self.targets_for_metrics[self.all_val_targets_timestamps]
-        targets_nan_mask = self.targets_nan_mask[self.all_val_targets_timestamps]
+        targets = self.targets_for_metrics[self.all_val_timestamps]
+        targets_nan_mask = self.targets_nan_mask[self.all_val_timestamps]
 
         targets, targets_nan_mask = self.prepare_targets_for_evaluation(targets, targets_nan_mask)
 
         return targets, targets_nan_mask
 
     def get_test_targets_for_metrics(self):
-        targets = self.targets_for_metrics[self.all_test_targets_timestamps]
-        targets_nan_mask = self.targets_nan_mask[self.all_test_targets_timestamps]
+        targets = self.targets_for_metrics[self.all_test_timestamps]
+        targets_nan_mask = self.targets_nan_mask[self.all_test_timestamps]
 
         targets, targets_nan_mask = self.prepare_targets_for_evaluation(targets, targets_nan_mask)
 
