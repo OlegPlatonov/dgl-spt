@@ -48,19 +48,20 @@ def get_args():
                              'each edge type separately and its results will be concatenated before being passed '
                              'to the following MLP module in the model.')
 
-    # The next two pairs of arguments can be used to transform targets that will be used for loss computation during
-    # training and targets that will be used as features for the model. Note that metrics during evaluation are always
-    # computed using original untransformed targets.
+    # The next two arguments can be used to transform targets from the future timestamps that will be used for loss
+    # computation during training and targets from the past timestamps and the current timestamp that will be provided
+    # as features to the model. These two transformations can be different. Note that the metrics during evaluation are
+    # always computed using the original untransformed targets.
 
-    # Transformation applied to targets that will be used for computing loss (targets from future timestamps that will
-    # be predicted during training).
+    # Transformation applied to targets that will be used for loss computation (targets from the future timestamps that
+    # will be predicted by the model during training).
     parser.add_argument('--targets_for_loss_transform', type=str, default='standard-scaler',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
                                  'quantile-transform-uniform'])
 
-    # Transformation applied to targets that will be used as features for the model (targets from past timestamps and
-    # current timestamp).
+    # Transformation applied to targets that will be provided as features to the model (targets from the past timestamps
+    # and the current timestamp).
     parser.add_argument('--targets_for_features_transform', type=str, default='quantile-transform-normal',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'power-transform-yeo-johnson', 'quantile-transform-normal',
@@ -210,7 +211,7 @@ def get_args():
 
 
 def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=True):
-    features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets(timestamps_batch)
+    features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets_for_loss(timestamps_batch)
 
     with torch.autocast(enabled=amp, device_type=features.device.type):
         preds = model(graph=dataset.train_batched_graph, x=features)
@@ -250,38 +251,41 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
         preds.append(cur_preds.cpu())
 
     preds = torch.cat(preds, axis=0)
-    preds_for_metrics = dataset.transform_preds_for_metrics(preds)
 
     if split == 'val':
-        targets_for_metrics, targets_nan_mask = dataset.get_val_targets_for_metrics()
+        targets, targets_nan_mask = dataset.get_val_targets_for_metrics()
     elif split == 'test':
-        targets_for_metrics, targets_nan_mask = dataset.get_test_targets_for_metrics()
+        targets, targets_nan_mask = dataset.get_test_targets_for_metrics()
     else:
         raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    if len(preds_for_metrics) < dataset.eval_max_num_timestamps_per_step:
+    if len(preds) < dataset.eval_max_num_timestamps_per_step:
         # Loss can be computed on GPU in one step.
-        preds_for_metrics = preds_for_metrics.to(dataset.device)
-        targets_for_metrics = targets_for_metrics.to(dataset.device)
+        preds = preds.to(dataset.device)
+        targets = targets.to(dataset.device)
 
-        loss = loss_fn(input=preds_for_metrics, target=targets_for_metrics, reduction='none')
+        preds = dataset.transform_preds_for_metrics(preds)
+
+        loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
         loss_mean = loss.sum() / (~targets_nan_mask).sum()
 
     else:
         # Computing loss on GPU requires batching.
-        preds_targets_dataset = TensorDataset(preds_for_metrics, targets_for_metrics, targets_nan_mask)
+        preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
         preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
                                           shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
 
         loss_sum = 0
         loss_count = 0
-        for cur_preds_for_metrics, cur_targets_for_metrics, cur_targets_nan_mask in preds_targets_loader:
-            cur_preds_for_metrics = cur_preds_for_metrics.to(dataset.device)
-            cur_targets_for_metrics = cur_targets_for_metrics.to(dataset.device)
+        for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
+            cur_preds = cur_preds.to(dataset.device)
+            cur_targets = cur_targets.to(dataset.device)
             cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
 
-            cur_loss = loss_fn(input=cur_preds_for_metrics, target=cur_targets_for_metrics, reduction='none')
+            cur_preds = dataset.transform_preds_for_metrics(cur_preds)
+
+            cur_loss = loss_fn(input=cur_preds, target=cur_targets, reduction='none')
             cur_loss[cur_targets_nan_mask] = 0
             cur_loss_sum = cur_loss.sum()
             cur_loss_count = (~cur_targets_nan_mask).sum()
