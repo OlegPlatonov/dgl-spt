@@ -160,15 +160,15 @@ class Dataset:
             # Transform numerical features and impute NaNs in numerical features.
             if numerical_features_mask.any():
                 numerical_features = features[:, :, numerical_features_mask]
-
+                numerical_features_orig_shape = numerical_features.shape
+                numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
                 # Transform numerical features.
                 numerical_features_transform = self.transforms[numerical_features_transform]()
                 numerical_features_transform.fit(
-                    numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
+                    numerical_features[all_train_timestamps]
                 )
-                numerical_features_orig_shape = numerical_features.shape
                 numerical_features = numerical_features_transform.transform(
-                    numerical_features.reshape(-1, numerical_features.shape[2])
+                    numerical_features
                 ).reshape(*numerical_features_orig_shape)
 
                 # Impute NaNs in numerical features. Note that NaNs are imputed based on spatial statistics, and are
@@ -195,6 +195,8 @@ class Dataset:
             # Apply one-hot encoding to categorical features.
             if categorical_features_mask.any():
                 categorical_features = features[:, :, categorical_features_mask]
+                print(f"Categorical features at {features_group_idx=}, found {np.isnan(categorical_features).sum()} nans")
+
                 categorical_features_orig_shape = categorical_features.shape
                 categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
                 one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
@@ -230,6 +232,8 @@ class Dataset:
                 features = np.concatenate(features_new, axis=2)
                 feature_names = feature_names_new
                 numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
+            
+            print(f"Features at {features_group_idx=}, found nans: {np.isnan(features).sum()}")
 
             features_groups[features_group_idx] = features
             feature_names_groups[features_group_idx] = feature_names
