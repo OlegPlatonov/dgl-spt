@@ -378,12 +378,10 @@ def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_
                 if optimizer_steps_till_eval == 0:
                     optimizer_steps_till_eval = eval_every
 
-            cur_step_metric = cur_step_loss.sqrt().item() if metric == 'RMSE' else cur_step_loss.item()
-
             progress_bar.update()
             progress_bar.set_postfix(
                 {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                {f'cur step {metric}': f'{cur_step_metric:.2f}', 'epoch': epoch}
+                {'cur step loss': f'{cur_step_loss.item():.2f}', 'epoch': epoch}
             )
 
             if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
