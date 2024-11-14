@@ -210,7 +210,7 @@ def get_args():
     return args
 
 
-def compute_loss(model, dataset, timestamps_batch, loss_fn, amp=True):
+def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
     features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets_for_loss(timestamps_batch)
 
     with torch.autocast(enabled=amp, device_type=features.device.type):
@@ -318,7 +318,7 @@ def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss
     return metrics
 
 
-def train(model, dataset, loss_fn, metric, logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
+def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
           run_id, device, amp=True, use_gradscaler=True, seed=None, do_not_evaluate_on_test=False):
     if seed is not None:
         torch.manual_seed(seed)

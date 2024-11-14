@@ -1,7 +1,7 @@
 """
 Ok, so this module looks scary. It has abstract base classes, metaclasses, and all that stuff. But what you really need
 to know to use it, is that there are two abstract base classes: SingleInputModel and SequenceInputModel, and each model
-used in this project should be a sublass of one of these two abstract base classes. If the model only takes as input
+used in this project should be a subclass of one of these two abstract base classes. If the model only takes as input
 information about one timestamp, that is, a tensor of shape [num_nodes, features_dim] (which might include information
 about targets from previous timestamps in the features), than this model shpuld be a subclass of SingleInputModel.
 If the model takes as input information about a sequence of timestamps, that is, a tensor of shape

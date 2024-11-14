@@ -159,6 +159,9 @@ class Dataset:
 
             # Transform numerical features and impute NaNs in numerical features.
             if numerical_features_mask.any():
+                if features_group_idx == 0:  # NOTE added exception to prevent eager nan passing
+                    raise ValueError("It is expected that temporal features do not have NaNs as they are imputed based on the spatial statistics")
+
                 numerical_features = features[:, :, numerical_features_mask]
                 numerical_features_orig_shape = numerical_features.shape
                 numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
