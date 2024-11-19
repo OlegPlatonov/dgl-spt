@@ -1,5 +1,7 @@
 import argparse
 from tqdm import tqdm
+from pathlib import Path
+
 
 import torch
 from torch.nn import functional as F
@@ -7,7 +9,10 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from dataset import Dataset
 from models import ModelRegistry
-from utils import Logger, get_parameter_groups
+from utils import Logger, get_parameter_groups, DummyHandler, NirvanaStateHandler, StateHandler
+
+from time import perf_counter
+
 
 
 def get_args():
@@ -209,7 +214,6 @@ def get_args():
 
     return args
 
-
 def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
     features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets_for_loss(timestamps_batch)
 
@@ -319,9 +323,13 @@ def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss
 
 
 def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
-          run_id, device, amp=True, use_gradscaler=True, seed=None, do_not_evaluate_on_test=False):
+          run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None, do_not_evaluate_on_test=False,
+          nirvana=False):
+
     if seed is not None:
         torch.manual_seed(seed)
+    elif nirvana:
+        raise ValueError("You must specify `seed` when training in Nirvana, as it guarantees the same training behaviour after every rescheduling!")
 
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True, num_workers=1)
@@ -338,28 +346,46 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     optimizer = torch.optim.AdamW(parameter_groups, lr=lr, weight_decay=weight_decay)
     gradscaler = torch.amp.GradScaler(enabled=use_gradscaler)
 
+    state_handler.add_model(model=model)
+    state_handler.add_optimizer(optimizer=optimizer)
+    state_handler.add_grad_scaler(scaler=gradscaler)
+
     logger.start_run(run=run_id)
-    epoch = 1
+
+    epoch = state_handler.epochs_finished + 1
     steps_till_optimizer_step = num_accumulation_steps
     optimizer_steps_till_eval = eval_every
-    optimizer_steps_done = 0
-    loss = 0
     metrics = {}
+
     train_timestamps_loader_iterator = iter(train_timestamps_loader)
     model.train()
+    starting_step_idx = state_handler.steps_after_epoch_start
     with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
-        for step in range(1, num_steps + 1):
+
+        if starting_step_idx > 0:
+            t1 = perf_counter()
+            print(f"Skipping {starting_step_idx} batches after rescheduling")
+            for step_to_skip in range(starting_step_idx):
+                next(train_timestamps_loader_iterator)
+            t2 = perf_counter()
+            print(f"Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds")
+
+        for step in range(starting_step_idx + 1, num_steps + 1):
             cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
             cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
                                          loss_fn=loss_fn, amp=amp)
-            loss += cur_step_loss
+            # loss += cur_step_loss
+            state_handler.loss += cur_step_loss
+
             steps_till_optimizer_step -= 1
 
             if steps_till_optimizer_step == 0:
-                loss /= num_accumulation_steps
-                optimizer_step(loss=loss, optimizer=optimizer, gradscaler=gradscaler)
-                loss = 0
-                optimizer_steps_done += 1
+                # loss /= num_accumulation_steps  # redundant as StateHandler copies this logic
+                optimizer_step(loss=state_handler.loss / num_accumulation_steps, optimizer=optimizer, gradscaler=gradscaler)
+                state_handler.loss = 0
+                # optimizer_steps_done += 1  # redundant as StateHandler copies this logic
+                state_handler.optimizer_steps_done += 1
+
                 steps_till_optimizer_step = num_accumulation_steps
                 optimizer_steps_till_eval -= 1
 
@@ -372,8 +398,10 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                 metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
                                    test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
                                    amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
-                logger.update_metrics(metrics=metrics, step=optimizer_steps_done, epoch=epoch)
+                logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
                 model.train()
+
+                state_handler.save_checkpoint()
 
                 if optimizer_steps_till_eval == 0:
                     optimizer_steps_till_eval = eval_every
@@ -384,11 +412,18 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                 {'cur step loss': f'{cur_step_loss.item():.2f}', 'epoch': epoch}
             )
 
+            state_handler.step()
+
             if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
                 train_timestamps_loader_iterator = iter(train_timestamps_loader)
                 epoch += 1
+                state_handler.finish_epoch()
+                breakpoint()
+                # check that logger, model and optimizer are shared also for state wrapper
+        starting_step_idx = 0
 
     logger.finish_run()
+    state_handler.finish_run()
     model.cpu()
 
 
@@ -438,9 +473,22 @@ def main():
     else:
         raise ValueError(f'Unsupported metric: {args.metric}.')
 
-    logger = Logger(args)
+    CHECKPOINT_DIR = Path(args.save_dir)
+    CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / "state.pt"
 
-    for run in range(1, args.num_runs + 1):
+    checkpoint_steps_interval = 30 # TODO add this as a hyperparameter
+    if args.nirvana:
+        state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
+
+    else:
+        state_handler: StateHandler = DummyHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
+
+    state_handler.load_checkpoint(initial_loading=True)
+
+    logger = Logger(args=args, start_from_scratch=CHECKPOINT_STATE_FILENAME.exists())
+    state_handler.add_logger(logger=logger)
+
+    for run in range(state_handler.num_runs_completed + 1, args.num_runs + 1):
         model = Model(
             neighborhood_aggregation_name=args.neighborhood_aggregation,
             neighborhood_aggregation_sep=not args.do_not_separate_ego_node_representation,
@@ -483,7 +531,11 @@ def main():
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
               device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
-              do_not_evaluate_on_test=args.do_not_evaluate_on_test)
+              do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana,
+              # nirvana specific arguments:
+              state_handler=state_handler,
+              )
+        state_handler.load_checkpoint()
 
     logger.print_metrics_summary()
 
