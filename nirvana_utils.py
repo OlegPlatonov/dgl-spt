@@ -1,15 +1,13 @@
 # Nirvana dependencies
 import yt.wrapper as yt
-
 from typing import List, Any, Dict
+from distutils.dir_util import copy_tree
+import os
 
 try:
     import nirvana_dl
-    from distutils.dir_util import copy_tree
-    import os
 except ImportError:
     nirvana_dl = None
-
 
 def copy_snapshot_to_out(out):
     """The preempted run transfers its "state" to the restarted run through "snapshot path".
@@ -23,7 +21,9 @@ def copy_snapshot_to_out(out):
         print(f"Copy the previous state from {snapshot_path} to {out}")
         copy_tree(snapshot_path, out)
         # os.system(f"tar -xf {out}/state -C {out}/")
-
+    if (x:=os.environ.get("SNAPSHOT_PATH")):
+        print(f"Copy the previous state from {x} to {out}")
+        copy_tree(x, out)
 
 def copy_out_to_snapshot(out, dump=True):
     """This function copies all files in the local "out" directory to "snapshot path".
@@ -43,6 +43,10 @@ def copy_out_to_snapshot(out, dump=True):
         if dump:
             # Make it visible in the Python DL output
             nirvana_dl.snapshot.dump_snapshot(snapshot_path)
+    if (x:=os.environ.get("SNAPSHOT_PATH")):
+        print(f"Copy {out} to the snapshot path: {x}")
+        copy_tree(out, x)
+
 
 
 def write_output_to_YT(

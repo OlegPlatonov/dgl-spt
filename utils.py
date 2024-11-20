@@ -33,18 +33,20 @@ class Logger:
             print(f'Results will be saved to {self.save_dir}.')
             with open(os.path.join(self.save_dir, 'args.yaml'), 'w') as file:
                 yaml.safe_dump(vars(args), file, sort_keys=False)
-            self._restarted = False
+            self.current_run_already_started: bool | None = False
         else:
             self.save_dir = None  # Will be set during restarting
-            self._restarted = True
+            self.current_run_already_started = None
 
-    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir):
+    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started):
         self.val_metrics = val_metrics
         self.test_metrics = test_metrics
         self.cur_run = cur_run
         self.best_steps = best_steps
         self.best_epochs = best_epochs
         self.save_dir = save_dir
+        self.current_run_already_started = current_run_already_started
+        print(f"Logging will be resumed at save directory {self.save_dir}")
 
     def get_parameters_for_checkpoint(self) -> dict[str, tp.Any]:
         return dict(
@@ -54,10 +56,14 @@ class Logger:
             best_steps=self.best_steps,
             best_epochs=self.best_epochs,
             save_dir=self.save_dir,
+            current_run_already_started=self.current_run_already_started,
         )
 
     def start_run(self, run):
-        if not self._restarted:
+        assert self.current_run_already_started is not None
+
+        if not self.current_run_already_started:
+            self.current_run_already_started = True
             self.cur_run = run
 
             self.val_metrics.append(None)
@@ -83,7 +89,7 @@ class Logger:
 
     def finish_run(self):
         self.save_metrics()
-        self._restarted = False  # TODO reassure that this is desired behaviour
+        self.current_run_already_started = False  # TODO reassure that this is desired behaviour
 
         if self.do_not_evaluate_on_test:
             print(f'Finished run {self.cur_run}. '
@@ -206,7 +212,7 @@ class StateHandler:
 
         self.num_runs_completed: int = 0
         self.epochs_finished: int = 0
-        self.steps_after_epoch_start: int = 0
+        self.steps_after_run_start: int = 0
         self.optimizer_steps_done: int = 0
         self.loss: float = 0.0
 
@@ -221,10 +227,11 @@ class StateHandler:
         self._logger_state: dict[str, tp.Any] | None = None
 
 
-    def load_checkpoint(self) -> None:
+    def load_checkpoint(self, initial_loading: bool = False) -> None:
         pass
 
     def add_logger(self, logger: Logger) -> None:
+        assert self.logger is Ellipsis
         self.logger = logger
 
         if self._logger_state is not None:
@@ -232,7 +239,7 @@ class StateHandler:
             del self._logger_state
 
     def add_model(self, model: torch.nn.Module) -> None:
-        del self.model
+        assert self.model is Ellipsis
         self.model = model
 
         if self._model_state is not None:
@@ -240,7 +247,7 @@ class StateHandler:
             del self._model_state
 
     def add_optimizer(self, optimizer: torch.optim.Optimizer) -> None:
-        del self.optimizer
+        assert self.optimizer is Ellipsis
         self.optimizer = optimizer
 
         if self._optimizer_state is not None:
@@ -248,7 +255,7 @@ class StateHandler:
             del self._optimizer_state
 
     def add_grad_scaler(self, scaler: torch.amp.GradScaler) -> None:
-        del self.grad_scaler
+        assert self.grad_scaler is Ellipsis
         self.grad_scaler = scaler
 
         if self._grad_scaler_state is not None:
@@ -311,18 +318,18 @@ class NirvanaStateHandler(StateHandler):
             self._optimizer_state = state_dict["optimizer_state"]
             self._grad_scaler_state = state_dict["scaler_state"]
 
-            self.steps_after_epoch_start = state_dict["steps_after_epoch_start"]
+            self.steps_after_run_start = state_dict["steps_after_run_start"]
             self.epochs_finished = state_dict["epochs_finished"]
             self.optimizer_steps_done = state_dict["optimizer_steps_done"]
             self.loss = state_dict["loss"]
-            self.num_runs_completed = state_dict["num_runs_completed"]
+            self.num_runs_completed = state_dict["runs_completed"]
 
     def save_checkpoint(self, finish_run: bool = False) -> None:
         print(f"Saving checkpoint to {self.checkpoint_file_path}")
         if finish_run:
             # if run is finished, there is no need to save model's weights and optimizer
             overall_state_dict = dict(
-                steps_after_epoch_start=0,
+                steps_after_run_start=0,
                 epochs_finished=0,
                 optimizer_steps_done=0,
                 loss=0.0,
@@ -334,7 +341,7 @@ class NirvanaStateHandler(StateHandler):
             )
         else:
             overall_state_dict = dict(
-                steps_after_epoch_start=self.steps_after_epoch_start,
+                steps_after_run_start=self.steps_after_run_start,
                 epochs_finished=self.epochs_finished,
                 optimizer_steps_done=self.optimizer_steps_done,
                 loss=self.loss,
@@ -346,21 +353,28 @@ class NirvanaStateHandler(StateHandler):
             )
 
         torch.save(overall_state_dict, f=self.checkpoint_file_path)
-        copy_out_to_snapshot(self.checkpoint_file_path, dump=True)
+        copy_out_to_snapshot(self.checkpoint_dir, dump=True)
 
     def step(self) -> None:
-        self.steps_after_epoch_start += 1
-        if self.steps_after_epoch_start % self.checkpoint_steps_interval == 0:
+        self.steps_after_run_start += 1
+        if self.steps_after_run_start % self.checkpoint_steps_interval == 0:
             self.save_checkpoint()
 
     def finish_epoch(self) -> None:
-        self.steps_after_epoch_start = 0
         self.epochs_finished += 1
         self.save_checkpoint()
 
     def finish_run(self) -> None:
         self.num_runs_completed += 1
-        self.save_checkpoint(finished_run=True)
+        self.save_checkpoint(finish_run=True)
+
+        del self.model
+        del self.optimizer
+        del self.grad_scaler
+
+        self.model = ...
+        self.optimizer = ...
+        self.grad_scaler = ...
 
 
 class DummyHandler(StateHandler):

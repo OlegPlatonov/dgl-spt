@@ -339,9 +339,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                                         drop_last=False, num_workers=1)
 
     num_steps = len(train_timestamps_loader) * num_epochs
-
     model.to(device)
-
     parameter_groups = get_parameter_groups(model)
     optimizer = torch.optim.AdamW(parameter_groups, lr=lr, weight_decay=weight_decay)
     gradscaler = torch.amp.GradScaler(enabled=use_gradscaler)
@@ -359,13 +357,15 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
     train_timestamps_loader_iterator = iter(train_timestamps_loader)
     model.train()
-    starting_step_idx = state_handler.steps_after_epoch_start
+    starting_step_idx = state_handler.steps_after_run_start
     with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
+        
+        progress_bar.n = starting_step_idx
 
         if starting_step_idx > 0:
             t1 = perf_counter()
             print(f"Skipping {starting_step_idx} batches after rescheduling")
-            for step_to_skip in range(starting_step_idx):
+            for step_to_skip in range(starting_step_idx % len(train_timestamps_loader_iterator)):
                 next(train_timestamps_loader_iterator)
             t2 = perf_counter()
             print(f"Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds")
@@ -418,9 +418,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                 train_timestamps_loader_iterator = iter(train_timestamps_loader)
                 epoch += 1
                 state_handler.finish_epoch()
-                breakpoint()
                 # check that logger, model and optimizer are shared also for state wrapper
-        starting_step_idx = 0
 
     logger.finish_run()
     state_handler.finish_run()
@@ -476,18 +474,16 @@ def main():
     CHECKPOINT_DIR = Path(args.save_dir)
     CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / "state.pt"
 
-    checkpoint_steps_interval = 30 # TODO add this as a hyperparameter
+    checkpoint_steps_interval = 250 # TODO add this as a hyperparameter
     if args.nirvana:
         state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
-
     else:
         state_handler: StateHandler = DummyHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
 
     state_handler.load_checkpoint(initial_loading=True)
-
-    logger = Logger(args=args, start_from_scratch=CHECKPOINT_STATE_FILENAME.exists())
+    whether_checkpoint_exists = CHECKPOINT_STATE_FILENAME.exists()
+    logger = Logger(args=args, start_from_scratch=not whether_checkpoint_exists)
     state_handler.add_logger(logger=logger)
-
     for run in range(state_handler.num_runs_completed + 1, args.num_runs + 1):
         model = Model(
             neighborhood_aggregation_name=args.neighborhood_aggregation,
