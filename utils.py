@@ -269,7 +269,13 @@ class StateHandler:
         pass
 
     def finish_run(self) -> None:
-        pass
+        del self.model
+        del self.optimizer
+        del self.grad_scaler
+
+        self.model = ...
+        self.optimizer = ...
+        self.grad_scaler = ...
 
     def save_checkpoint(self, finish_run: bool = False) -> None:
         pass
@@ -312,7 +318,7 @@ class NirvanaStateHandler(StateHandler):
 
         if self.checkpoint_file_path.exists():
             # if path exists, thus logger state always nonempty
-            state_dict: dict[str, TorchStateDict | dict[str, tp.Any] | int | float] = torch.load(self.checkpoint_file_path)
+            state_dict: dict[str, TorchStateDict | dict[str, tp.Any] | int | float] = torch.load(self.checkpoint_file_path, weights_only=True)
             self._logger_state = state_dict["logger_state"]
             self._model_state = state_dict["model_state"]
             self._optimizer_state = state_dict["optimizer_state"]
@@ -367,15 +373,7 @@ class NirvanaStateHandler(StateHandler):
     def finish_run(self) -> None:
         self.num_runs_completed += 1
         self.save_checkpoint(finish_run=True)
-
-        del self.model
-        del self.optimizer
-        del self.grad_scaler
-
-        self.model = ...
-        self.optimizer = ...
-        self.grad_scaler = ...
-
+        super().finish_run()
 
 class DummyHandler(StateHandler):
     pass
