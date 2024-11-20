@@ -15,10 +15,12 @@ from time import perf_counter
 
 
 
-def get_args():
+def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
-
-    parser.add_argument('--name', type=str, required=True, help='Experiment name.')
+    if add_name:
+        # need this for automatic config generation
+        parser.add_argument('--name', type=str, required=True, help='Experiment name.')
+    parser.add_argument('--checkpoint_steps_interval', type=int, default=1000, help='Interval for saving experiment state to $SNAPSHOT_PATH')
     parser.add_argument('--save_dir', type=str, default='experiments', help='Base directory for saving information.')
     parser.add_argument('--dataset', type=str, default='pems-bay',
                         help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
@@ -212,7 +214,7 @@ def get_args():
 
     args = parser.parse_args()
 
-    return args
+    return args, parser
 
 def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
     features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets_for_loss(timestamps_batch)
@@ -426,7 +428,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
 
 def main():
-    args = get_args()
+    args, _ = get_args()
 
     torch.set_num_threads(args.num_threads)
 
@@ -474,7 +476,7 @@ def main():
     CHECKPOINT_DIR = Path(args.save_dir)
     CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / "state.pt"
 
-    checkpoint_steps_interval = 250 # TODO add this as a hyperparameter
+    checkpoint_steps_interval = args.checkpoint_steps_interval
     if args.nirvana:
         state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
     else:

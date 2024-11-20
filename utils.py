@@ -89,7 +89,7 @@ class Logger:
 
     def finish_run(self):
         self.save_metrics()
-        self.current_run_already_started = False  # TODO reassure that this is desired behaviour
+        self.current_run_already_started = False
 
         if self.do_not_evaluate_on_test:
             print(f'Finished run {self.cur_run}. '
