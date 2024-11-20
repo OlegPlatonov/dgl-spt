@@ -83,6 +83,7 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
 
 if __name__ == "__main__":
     single_choice_params, multi_choice_params = filter_params_on_single_and_multiple_options()
+    print("#!/bin/bash")
 
     if len(multi_choice_params) > 0:
         multi_choice_containers_per_param: List[List[Tuple[str, str]]] = []

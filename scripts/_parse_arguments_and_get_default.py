@@ -19,7 +19,7 @@ print(f"{arguments_dict=}")
 with open("config.txt", "w") as f_write:
     print('{', file=f_write)
     
-    parameter_string = "    \"name\": ${{global.name!\"Name1\"}},"
+    parameter_string = "    \"name\": ${global.name!\"Name1\"},"
     print(parameter_string, file=f_write)
     for argument, default_value in arguments_dict.items():
         parameter_string = f"    \"{argument}\": ${{global.{argument}!\"{default_value}\"}},"
