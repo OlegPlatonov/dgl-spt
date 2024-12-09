@@ -3,6 +3,15 @@ from typing import List, Dict, Tuple
 import sys
 from ast import literal_eval
 from itertools import product
+import argparse
+
+sys.path.append("../")
+sys.path.append("./")
+
+from run_single_experiment import get_args
+
+_default_params, parser = get_args(add_name=False)
+
 
 try:
     import nirvana_dl as ndl
@@ -11,99 +20,21 @@ try:
 except ImportError:
     print("Couldn't import `nirvana_dl` package", file=sys.stderr)
     ndl = None
-    PARAMS = {
-        "name": "nirvana_local_test",
-        "save_dir": "experiments",
-        "dataset": "pems-bay",
-        "metric": "RMSE",
-        "prediction_horizon": 12,
-        "only_predict_at_end_of_horizon": False,
-        "direct_lookback_num_steps": 48,
-        "seasonal_lookback_periods": None,
-        "seasonal_lookback_num_steps": None,
-        "drop_early_train_timestamps": "direct",
-        "reverse_edges": False,
-        "to_undirected": False,
-        "use_forward_and_reverse_edges_as_different_edge_types": False,
-        "target_transform": "standard-scaler",
-        "transform_targets_for_each_node_separately": False,
-        "imputation_startegy_for_nan_targets": "prev",
-        "add_features_for_nan_targets": False,
-        "do_not_use_temporal_features": False,
-        "do_not_use_spatial_features": False,
-        "do_not_use_spatiotemporal_features": False,
-        "use_deepwalk_node_embeddings": False,
-        "use_learnable_node_embeddings": False,
-        "learnable_node_embeddings_dim": 128,
-        "initialize_learnable_node_embeddings_with_deepwalk": False,
-        "imputation_strategy_for_numerical_features": "most_frequent",
-        "numerical_features_transform": "quantile-transform-normal",
-        "use_plr_for_num_features": False,
-        "plr_num_features_frequencies_dim": 48,
-        "plr_num_features_frequencies_scale": 0.01,
-        "plr_num_features_embedding_dim": 16,
-        "plr_num_features_shared_linear": False,
-        "plr_num_features_shared_frequencies": False,
-        "use_plr_for_past_targets": False,
-        "plr_past_targets_frequencies_dim": 48,
-        "plr_past_targets_frequencies_scale": 0.01,
-        "plr_past_targets_embedding_dim": 16,
-        "plr_past_targets_shared_linear": False,
-        "plr_past_targets_shared_frequencies": False,
-        "model_class": "SingleInputGNN",
-        "neighborhood_aggregation": "MeanAggr",
-        "do_not_separate_ego_node_representation": False,
-        "sequence_encoder": "RNN",
-        "normalization": "LayerNorm",
-        "num_residual_blocks": 2,
-        "hidden_dim": 512,
-        "neighborhood_aggr_attn_num_heads": 4,
-        "seq_encoder_num_layers": 4,
-        "seq_encoder_rnn_type": "LSTM",
-        "seq_encoder_attn_num_heads": 8,
-        "seq_encoder_bidir_attn": False,
-        "dropout": 0,
-        "weight_decay": 0,
-        "lr": 0.0003,
-        "num_epochs": 10,
-        "train_batch_size": [1, 2, 3, 4, 5],
-        "eval_batch_size": None,
-        "num_accumulation_steps": 1,
-        "eval_every": 1000,
-        "num_runs": 2,
-        "device": "cuda:0",
-        "amp": False,
-        "num_threads": [32, 123123123123123123],
-    }
-
+    PARAMS = vars(_default_params)
+    
     for key in PARAMS:
         PARAMS[key] = str(PARAMS[key])
+    PARAMS["name"] = ["Name", "ASDJAHSGDKHJAGSDJKHGASJKD"]
 
-STORE_TRUE_ARGS = {
-    "transform_targets_for_loss_for_each_node_separately",
-    "seq_encoder_bidir_attn",
-    "plr_past_targets_shared_linear",
-    "do_not_use_spatiotemporal_features",
-    "reverse_edges",
-    "add_indicators_of_nan_targets_to_features",
-    "plr_num_features_shared_linear",
-    "only_predict_at_end_of_horizon",
-    "do_not_use_spatial_features",
-    "do_not_separate_ego_node_representation",
-    "to_undirected",
-    "nirvana",
-    "use_forward_and_reverse_edges_as_different_edge_types",
-    "initialize_learnable_node_embeddings_with_deepwalk",
-    "amp",
-    "do_not_use_temporal_features",
-    "use_plr_for_past_targets",
-    "use_plr_for_num_features",
-    "transform_targets_for_features_for_each_node_separately",
-    "plr_past_targets_shared_frequencies",
-    "use_deepwalk_node_embeddings",
-    "use_learnable_node_embeddings",
-    "plr_num_features_shared_frequencies",
-}
+
+
+store_true_args = []
+for action in parser._actions:
+    if isinstance(action, argparse._StoreTrueAction):
+        store_true_args.append(action.option_strings[0][2:])
+
+
+STORE_TRUE_ARGS = set(store_true_args)
 
 
 def filter_params_on_single_and_multiple_options():
@@ -152,6 +83,7 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
 
 if __name__ == "__main__":
     single_choice_params, multi_choice_params = filter_params_on_single_and_multiple_options()
+    print("#!/bin/bash")
 
     if len(multi_choice_params) > 0:
         multi_choice_containers_per_param: List[List[Tuple[str, str]]] = []

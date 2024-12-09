@@ -41,7 +41,7 @@ class Dataset:
             path = f'data/{name.replace("-", "_")}.npz'
 
         print('Preparing data...')
-        data = NirvanaNpzDataWrapper(root_path='data') if nirvana else np.load(path, allow_pickle=True)
+        data = NirvanaNpzDataWrapper(root_path='data') if (nirvana and not os.environ.get("LOCAL")) else np.load(path, allow_pickle=True)
 
         # GET TIME SPLITS
 
@@ -151,6 +151,7 @@ class Dataset:
         for features_group_idx, (features, feature_names) in enumerate(zip(features_groups, feature_names_groups)):
             numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
             categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
+            # breakpoint()
             for i, feature_name in enumerate(feature_names):
                 if feature_name in numerical_feature_names_set:
                     numerical_features_mask[i] = True
