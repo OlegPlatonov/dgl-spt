@@ -4,7 +4,6 @@ from pathlib import Path
 import yaml
 import numpy as np
 import torch
-
 from nirvana_utils import copy_snapshot_to_out, copy_out_to_snapshot
 
 TorchStateDict = tp.Mapping[str, torch.FloatTensor]
@@ -377,3 +376,48 @@ class NirvanaStateHandler(StateHandler):
 
 class DummyHandler(StateHandler):
     pass
+
+
+class TensorMemmapAdapter:
+    """
+    Wraps memmap numpy object and supports
+    """
+    def __init__(self, memmap_object: torch.Tensor) -> None:
+        self._inner_memmap: torch.Tensor = memmap_object
+
+    def __repr__(self) -> str:
+        return repr(self._inner_memmap)
+
+    # @lru_cache(self._inner_memmap.shape[0]/_inner_memmap)
+    # def _get_by_idx(self, idx: int):
+    #     pass
+
+    def __getitem__(self, idx: int | torch.Tensor) -> torch.Tensor:
+        print(f"Accessing {idx=}")
+        if isinstance(idx, torch.Tensor):
+            # idx = idx.tolist()
+            # items = torch.cat([self._inner_memmap[i:i+1, ...] for i in idx])
+            items = self._inner_memmap[idx[0]:idx[-1]+1]
+            print(f"Accessed {idx=}!")
+            return items
+        return torch.tensor(self._inner_memmap[idx])
+
+
+def get_tensor_or_wrap_memmap(array_or_memmap: np.ndarray | torch.Tensor) -> torch.Tensor | TensorMemmapAdapter:
+    """
+    Either returns tensor or wraps tensor logic aroung numpy memmap file
+    """
+    if isinstance(array_or_memmap, np.ndarray):
+        return torch.from_numpy(array_or_memmap)
+    else:
+        return array_or_memmap # TensorMemmapAdapter(array_or_memmap)
+
+
+def read_memmap(filepath: str,
+                shape: tuple[int, ...],
+                device: torch.device = None,
+                dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    number_of_elements = np.prod(shape)
+    return torch.load(f=filepath, weights_only=True, map_location=device, mmap=True)
+    # return torch.from_file(filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False).reshape(shape)
+    # return torch.from_numpy(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape)).detach().clone()

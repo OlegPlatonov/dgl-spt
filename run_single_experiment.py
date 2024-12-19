@@ -333,12 +333,12 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     elif nirvana:
         raise ValueError("You must specify `seed` when training in Nirvana, as it guarantees the same training behaviour after every rescheduling!")
 
-    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
-                                         drop_last=True, num_workers=1)
+    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=False,
+                                         drop_last=True)
     val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
-                                       drop_last=False, num_workers=1)
+                                       drop_last=False)
     test_timestamps_loader = DataLoader(dataset.test_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
-                                        drop_last=False, num_workers=1)
+                                        drop_last=False)
 
     num_steps = len(train_timestamps_loader) * num_epochs
     model.to(device)

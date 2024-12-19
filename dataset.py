@@ -1,5 +1,6 @@
 import os
 from functools import partial
+import typing as tp
 import numpy as np
 import pandas as pd
 import torch
@@ -7,7 +8,8 @@ import dgl
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 from data_transforms import IdentityTransform, StandardScaler, MinMaxScaler, RobustScaler, QuantileTransform
-from utils import NirvanaNpzDataWrapper
+from utils import NirvanaNpzDataWrapper, get_tensor_or_wrap_memmap, read_memmap
+from multiprocessing import Pool
 
 
 class Dataset:
@@ -19,6 +21,115 @@ class Dataset:
         'quantile-transform-normal': partial(QuantileTransform, distribution='normal'),
         'quantile-transform-uniform': partial(QuantileTransform, distribution='uniform')
     }
+
+    def _transform_feature_group(self,
+                                 features_type: tp.Literal["temporal", "spatial", "spatiotemporal"],
+                                 features: np.ndarray | None,
+                                 features_dim: int,
+                                 feature_names: tp.Sequence[str],
+                                 numerical_features_names: set[str],
+                                 categorical_features_names: set[str],
+                                 binary_features_names: set[str],
+                                 numerical_features_transform: tp.Literal["none", "standard-scaler", "min-max-scaler", "robust-scaler", "quantile-transform-normal", "quantile-transform-uniform"],
+                                 numerical_features_nan_imputation_strategy: tp.Literal["mean", "median", "most_frequent", "constant"],
+                                 all_train_timestamps: tp.Sequence[int],
+                                 skip: bool = False):
+
+        numerical_features_mask = np.zeros(features_dim, dtype=bool)
+        categorical_features_mask = np.zeros(features_dim, dtype=bool)
+
+        for i, feature_name in enumerate(feature_names):
+            if feature_name in numerical_features_names:
+                numerical_features_mask[i] = True
+            elif feature_name in categorical_features_names:
+                categorical_features_mask[i] = True
+        if skip:
+            print(f"Skipped preprocessed {features_type} features")
+    
+            return features, feature_names, numerical_features_mask # TODO decide what ot return
+
+        # Transform numerical features and impute NaNs in numerical features.
+        if numerical_features_mask.any():
+
+            numerical_features = features[:, :, numerical_features_mask]
+            numerical_features_orig_shape = numerical_features.shape
+            numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
+            # Transform numerical features.
+            numerical_features_transform = self.transforms[numerical_features_transform]()
+            numerical_features_transform.fit(
+                numerical_features[all_train_timestamps]
+            )
+            numerical_features = numerical_features_transform.transform(
+                numerical_features
+            ).reshape(*numerical_features_orig_shape)
+
+            # Impute NaNs in numerical features. Note that NaNs are imputed based on spatial statistics, and are
+            # thus not imputed for temporal features (features_group_idx == 0). It is expected that temporal
+            # features do not have NaNs.
+            if np.isnan(numerical_features).any():
+                if features_type == "temporal":
+                    raise ValueError("It is expected that temporal features do not have NaNs as they are imputed based on the spatial statistics")
+
+                numerical_features = numerical_features.transpose(1, 0, 2)
+                numerical_features_imputer = SimpleImputer(missing_values=np.nan,
+                                                            strategy=numerical_features_nan_imputation_strategy,
+                                                            copy=False)
+                numerical_features_transposed_shape = numerical_features.shape
+                numerical_features = numerical_features_imputer.fit_transform(
+                    numerical_features.reshape(numerical_features.shape[0], -1)
+                ).reshape(*numerical_features_transposed_shape)
+                numerical_features = numerical_features.transpose(1, 0, 2)
+
+            # Put transformed and imputed numerical features back into features array.
+            slow_idx = 0
+            for fast_idx in range(features.shape[2]):
+                if numerical_features_mask[fast_idx]:
+                    features[:, :, fast_idx] = numerical_features[:, :, slow_idx]
+                    slow_idx += 1
+
+        # Apply one-hot encoding to categorical features.
+        if categorical_features_mask.any():
+            categorical_features = features[:, :, categorical_features_mask]
+            print(f"Found categorical features in {features_type} type, detected {np.isnan(categorical_features).sum()} nans")
+
+            categorical_features_orig_shape = categorical_features.shape
+            categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
+            one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
+            categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
+            categorical_features_encoded = categorical_features_encoded.reshape(
+                *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
+            )
+
+            one_hot_encoder_output_feature_names = one_hot_encoder.get_feature_names_out(
+                input_features=np.array(feature_names, dtype=object)[categorical_features_mask]
+            ).tolist()
+
+            # Change features array, feature names, and numerical features mask to include one-hot encoded
+            # categorical features.
+            features_new = []
+            feature_names_new = []
+            numerical_features_mask_new = []
+            start_idx = 0
+            for i in range(features.shape[2]):
+                feature = features[:, :, i, None]
+                if not categorical_features_mask[i]:
+                    features_new.append(feature)
+                    feature_names_new.append(feature_names[i])
+                    numerical_features_mask_new.append(numerical_features_mask[i])
+                else:
+                    num_categories = len(one_hot_encoder.categories_[i])
+                    feature = categorical_features_encoded[:, :, start_idx:start_idx + num_categories]
+                    features_new.append(feature)
+                    feature_names_new += one_hot_encoder_output_feature_names[start_idx:start_idx + num_categories]
+                    numerical_features_mask_new += [False for _ in range(num_categories)]
+                    start_idx += num_categories
+
+            features = np.concatenate(features_new, axis=2)
+            feature_names = feature_names_new
+            numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
+
+        print(f"Processed {features_type} features")
+        return features, feature_names, numerical_features_mask
 
     def __init__(self, name_or_path, prediction_horizon=12, only_predict_at_end_of_horizon=False,
                  provide_sequnce_inputs=False, direct_lookback_num_steps=48,
@@ -32,16 +143,21 @@ class Dataset:
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
-                 device='cpu', nirvana=False):
+                 device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = "/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music/spatiotemporal_features_memmap.pt"):
+        DATA_ROOT = "data"
+        # torch.set_default_device(device)
+        # NOTE this code can crash if the dataset doesn't have specified format
+        if os.path.exists(name_or_path):
+            name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
+            path = name_or_path
         if name_or_path.endswith('.npz'):
             name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
             path = name_or_path
         else:
             name = name_or_path
-            path = f'data/{name.replace("-", "_")}.npz'
-
+            path = f'{DATA_ROOT}/{name.replace("-", "_")}.npz'
         print('Preparing data...')
-        data = NirvanaNpzDataWrapper(root_path='data') if (nirvana and not os.environ.get("LOCAL")) else np.load(path, allow_pickle=True)
+        data = NirvanaNpzDataWrapper(root_path=DATA_ROOT) if (nirvana and not os.environ.get("LOCAL")) else np.load(path, allow_pickle=True)
 
         # GET TIME SPLITS
 
@@ -110,23 +226,39 @@ class Dataset:
         if do_not_use_temporal_features:
             temporal_features = np.empty((num_timestamps, 1, 0), dtype=np.float32)
             temporal_feature_names = []
+            skip_temporal_features = True
         else:
             temporal_features = data['temporal_node_features'].astype(np.float32)
             temporal_feature_names = data['temporal_node_feature_names'].tolist()
+            skip_temporal_features = False
 
         if do_not_use_spatial_features:
             spatial_features = np.empty((1, num_nodes, 0), dtype=np.float32)
             spatial_feature_names = []
+            skip_spatial_features = True
         else:
             spatial_features = data['spatial_node_features'].astype(np.float32)
             spatial_feature_names = data['spatial_node_feature_names'].tolist()
+            skip_spatial_features = False
 
         if do_not_use_spatiotemporal_features:
             spatiotemporal_features = np.empty((num_timestamps, num_nodes, 0), dtype=np.float32)
             spatiotemporal_feature_names = []
+            skip_spatotemporal_features = True
         else:
-            spatiotemporal_features = data['spatiotemporal_node_features'].astype(np.float32)
             spatiotemporal_feature_names = data['spatiotemporal_node_feature_names'].tolist()
+            if spatiotemporal_features_local_processed_memmap_name is None:
+                spatiotemporal_features = data['spatiotemporal_node_features'].astype(np.float32)
+                skip_spatotemporal_features = False
+                
+            else:
+                skip_spatotemporal_features = True
+                spatiotemporal_features = read_memmap(
+                    filepath=os.path.join(DATA_ROOT, spatiotemporal_features_local_processed_memmap_name),
+                    # filepath=os.path.join(DATA_ROOT, spatiotemporal_features_local_processed_memmap_name),
+                    shape=(num_timestamps, num_nodes, len(spatiotemporal_feature_names)),
+                    # device=torch.device(device),
+                )
 
         if use_deepwalk_node_embeddings or initialize_learnable_node_embeddings_with_deepwalk:
             if 'deepwalk_node_embeddings' not in data.keys():
@@ -145,107 +277,26 @@ class Dataset:
         binary_feature_names_set = set(data['bin_feature_names'])
         categorical_feature_names_set = set(data['cat_feature_names'])
 
-        features_groups = [temporal_features, spatial_features, spatiotemporal_features]
-        feature_names_groups = [temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names]
-        numerical_features_masks_by_group = [None, None, None]
-        for features_group_idx, (features, feature_names) in enumerate(zip(features_groups, feature_names_groups)):
-            numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
-            categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
-            # breakpoint()
-            for i, feature_name in enumerate(feature_names):
-                if feature_name in numerical_feature_names_set:
-                    numerical_features_mask[i] = True
-                elif feature_name in categorical_feature_names_set:
-                    categorical_features_mask[i] = True
+        _pool_arguments = [
+            ["temporal", None if skip_temporal_features else temporal_features, temporal_features.shape[-1], temporal_feature_names, numerical_feature_names_set, categorical_feature_names_set, binary_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps, skip_temporal_features],
+            ["spatial", None if skip_spatial_features else  spatial_features, temporal_features.shape[-1], spatial_feature_names, numerical_feature_names_set, categorical_feature_names_set, binary_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatial_features],
+            ["spatiotemporal", None if skip_spatotemporal_features else spatiotemporal_features, spatiotemporal_features.shape[-1], spatiotemporal_feature_names, numerical_feature_names_set, categorical_feature_names_set, binary_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatotemporal_features]
+        ]
 
-            # Transform numerical features and impute NaNs in numerical features.
-            if numerical_features_mask.any():
-                if features_group_idx == 0:  # NOTE added exception to prevent eager nan passing
-                    raise ValueError("It is expected that temporal features do not have NaNs as they are imputed based on the spatial statistics")
+        
+        with Pool(processes=3) as preprocessing_pool:
+            _preprocessing_result = preprocessing_pool.starmap(self._transform_feature_group, _pool_arguments)
 
-                numerical_features = features[:, :, numerical_features_mask]
-                numerical_features_orig_shape = numerical_features.shape
-                numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
-                # Transform numerical features.
-                numerical_features_transform = self.transforms[numerical_features_transform]()
-                numerical_features_transform.fit(
-                    numerical_features[all_train_timestamps]
-                )
-                numerical_features = numerical_features_transform.transform(
-                    numerical_features
-                ).reshape(*numerical_features_orig_shape)
+        features_groups, feature_names_groups, numerical_features_masks_by_group = zip(*_preprocessing_result)
 
-                # Impute NaNs in numerical features. Note that NaNs are imputed based on spatial statistics, and are
-                # thus not imputed for temporal features (features_group_idx == 0). It is expected that temporal
-                # features do not have NaNs.
-                if features_group_idx != 0 and np.isnan(numerical_features).any():
-                    numerical_features = numerical_features.transpose(1, 0, 2)
-                    numerical_features_imputer = SimpleImputer(missing_values=np.nan,
-                                                               strategy=numerical_features_nan_imputation_strategy,
-                                                               copy=False)
-                    numerical_features_transposed_shape = numerical_features.shape
-                    numerical_features = numerical_features_imputer.fit_transform(
-                        numerical_features.reshape(numerical_features.shape[0], -1)
-                    ).reshape(*numerical_features_transposed_shape)
-                    numerical_features = numerical_features.transpose(1, 0, 2)
+        temporal_features = features_groups[0] if features_groups[0] is not None else temporal_features
+        spatial_features = features_groups[1] if features_groups[1] is not None else spatial_features
+        spatiotemporal_features = features_groups[2] if features_groups[2] is not None else spatiotemporal_features
 
-                # Put transformed and imputed numerical features back into features array.
-                slow_idx = 0
-                for fast_idx in range(features.shape[2]):
-                    if numerical_features_mask[fast_idx]:
-                        features[:, :, fast_idx] = numerical_features[:, :, slow_idx]
-                        slow_idx += 1
-
-            # Apply one-hot encoding to categorical features.
-            if categorical_features_mask.any():
-                categorical_features = features[:, :, categorical_features_mask]
-                print(f"Categorical features at {features_group_idx=}, found {np.isnan(categorical_features).sum()} nans")
-
-                categorical_features_orig_shape = categorical_features.shape
-                categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
-                one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
-                categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
-                categorical_features_encoded = categorical_features_encoded.reshape(
-                    *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
-                )
-
-                one_hot_encoder_output_feature_names = one_hot_encoder.get_feature_names_out(
-                    input_features=np.array(feature_names, dtype=object)[categorical_features_mask]
-                ).tolist()
-
-                # Change features array, feature names, and numerical features mask to include one-hot encoded
-                # categorical features.
-                features_new = []
-                feature_names_new = []
-                numerical_features_mask_new = []
-                start_idx = 0
-                for i in range(features.shape[2]):
-                    feature = features[:, :, i, None]
-                    if not categorical_features_mask[i]:
-                        features_new.append(feature)
-                        feature_names_new.append(feature_names[i])
-                        numerical_features_mask_new.append(numerical_features_mask[i])
-                    else:
-                        num_categories = len(one_hot_encoder.categories_[i])
-                        feature = categorical_features_encoded[:, :, start_idx:start_idx + num_categories]
-                        features_new.append(feature)
-                        feature_names_new += one_hot_encoder_output_feature_names[start_idx:start_idx + num_categories]
-                        numerical_features_mask_new += [False for _ in range(num_categories)]
-                        start_idx += num_categories
-
-                features = np.concatenate(features_new, axis=2)
-                feature_names = feature_names_new
-                numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
-            
-            print(f"Features at {features_group_idx=}, found nans: {np.isnan(features).sum()}")
-
-            features_groups[features_group_idx] = features
-            feature_names_groups[features_group_idx] = feature_names
-            numerical_features_masks_by_group[features_group_idx] = numerical_features_mask
-
-        temporal_features, spatial_features, spatiotemporal_features = features_groups
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
+
+        # TODO add masks signalling that features are empty at for current timestamp for spatitemporal features
 
         # PREPARE GRAPH
 
@@ -341,14 +392,14 @@ class Dataset:
         past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
-                        deepwalk_embeddings.shape[2])
+                        deepwalk_embeddings.shape[2])  # TODO add features nan mask here !!!!!!! and targets nan mask too
 
         past_targets_mask = np.zeros(features_dim, dtype=bool)
         past_targets_mask[:past_targets_features_dim] = True
 
         numerical_features_mask_extentsion = np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim,
-                                                      dtype=bool)
-        numerical_features_mask = np.concatenate([numerical_features_mask_extentsion, numerical_features_mask], axis=0)
+                                                      dtype=bool)  # TODO here nan mask
+        numerical_features_mask = np.concatenate([numerical_features_mask_extentsion, numerical_features_mask], axis=0)  # TODO here nan mask
 
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO FUTURE TARGETS THAT WILL BE PREDICTED
 
@@ -405,7 +456,6 @@ class Dataset:
         train_timestamps = train_timestamps[~drop_train_timestamps_mask]
 
         # STORE EVERYTHING WE MIGHT NEED
-
         self.name = name
         self.provide_sequence_inputs = provide_sequnce_inputs
         self.device = device
@@ -423,19 +473,20 @@ class Dataset:
         self.val_timestamps = torch.from_numpy(val_timestamps)
         self.test_timestamps = torch.from_numpy(test_timestamps)
 
-        self.targets = torch.from_numpy(targets)
-        self.targets_nan_mask = torch.from_numpy(targets_nan_mask)
+        self.targets = get_tensor_or_wrap_memmap(targets)
+        self.targets_nan_mask = get_tensor_or_wrap_memmap(targets_nan_mask)
+
         self.add_nan_indicators_to_targets_for_features = add_nan_indicators_to_targets_for_features
         self.targets_for_loss_transform = targets_for_loss_transform.torch().to(device)
         self.targets_for_features_transform = targets_for_features_transform.torch().to(device)
 
-        self.temporal_features = torch.from_numpy(temporal_features)
+        self.temporal_features = get_tensor_or_wrap_memmap(temporal_features)
         self.temporal_feature_names = temporal_feature_names
-        self.spatial_features = torch.from_numpy(spatial_features)
+        self.spatial_features = get_tensor_or_wrap_memmap(spatial_features)
         self.spatial_feature_names = spatial_feature_names
-        self.spatiotemporal_features = torch.from_numpy(spatiotemporal_features)
+        self.spatiotemporal_features = get_tensor_or_wrap_memmap(spatiotemporal_features)
         self.spatiotemporal_feature_names = spatiotemporal_feature_names
-        self.deepwalk_embeddings = torch.from_numpy(deepwalk_embeddings)
+        self.deepwalk_embeddings = get_tensor_or_wrap_memmap(deepwalk_embeddings)
 
         self.spatial_features_batched_train = self.spatial_features.repeat(1, train_batch_size, 1).to(device)
         self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.repeat(1, train_batch_size, 1).to(device)
@@ -477,7 +528,7 @@ class Dataset:
 
         self.eval_max_num_timestamps_per_step = eval_max_num_predictions_per_step // self.targets_dim // num_nodes
 
-    def get_timestamp_features_as_single_input(self, timestamp):
+    def get_timestamp_features_as_single_input(self, timestamp):  # TODO features nan mask here
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
@@ -505,7 +556,7 @@ class Dataset:
 
         return features
 
-    def get_timestamp_features_as_sequence_input(self, timestamp):
+    def get_timestamp_features_as_sequence_input(self, timestamp):  # TODO features nan mask here
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
 
         past_targets = self.targets[past_timestamps].to(self.device)
@@ -581,8 +632,16 @@ class Dataset:
 
         temporal_features = self.temporal_features[timestamps_batch].to(self.device).squeeze(1)\
             .repeat_interleave(repeats=self.num_nodes, dim=0)
-        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch].to(self.device)\
+        # print("Loaded temporal features to gpu")
+        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch[0]:timestamps_batch[-1]+1]
+        # print("Returned indexed spt features")
+        spatiotemporal_features = spatiotemporal_features.detach()
+        # print("Detached spt features")
+        spatiotemporal_features = spatiotemporal_features.clone()
+        # print("Cloned spt features")
+        spatiotemporal_features= spatiotemporal_features.to(self.device, non_blocking=True)\
             .flatten(start_dim=0, end_dim=1)
+        print("Loaded spatiotemporal features to gpu")
 
         if batch_size == self.train_batch_size:
             spatial_features = self.spatial_features_batched_train.squeeze(0)
