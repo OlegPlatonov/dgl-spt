@@ -32,19 +32,14 @@ TARGETS_GRANULARITY_SECONDS = 60 * 60  # 1hr
 
 SPATIOTEMPORAL_FEATURES_DIM = 207
 
-FEATURES_TABLES_YT_INPUT_DIR = '//home/yr/ostroumova-la/music/processed-features-daily-hourly/filtered-users-from-01-07-2024-to-20-10-2024'
-TARGETS_YT_INPUT_TABLE = '//home/yr/fvelikon/nirvana/5d24d125-130c-4c67-bbeb-6f3043f59c3a/output1___ydpv-QHT7KILqYEBAqwcw'
-GRAPH_EDGELIST_YT_INPUT_TABLE = '//home/yr/fvelikon/nirvana/64aba77b-64d1-4cce-b4bb-2fe890da730e/output1__cl9h3u-AQvSWYMJaWMwfDQ'
-NODE_ID_TO_INDEX_INPUT_TABLE = '//home/yr/fvelikon/nirvana/287639fc-0e5e-4d29-b2c7-820c610f22fe/output1__Upq8HTKJTBSMdsaHZbZpJQ'
+FEATURES_TABLES_YT_INPUT_DIR = '//home/yr/ostroumova-la/music/processed-features-daily-hourly/filtered-users-from-01-07-2024-to-20-10-2024-truncated'
+TARGETS_YT_INPUT_TABLE = '//home/yr/fvelikon/nirvana/90c1acbc-f1c3-4472-a3df-4af66c798723/output1__uJAeBCA2RN-_kUPg3gevLA'
+GRAPH_EDGELIST_YT_INPUT_TABLE = '//home/yr/fvelikon/nirvana/f1939781-c6bb-4b00-8995-898d7c4977cb/output1__ENc_Ztp7RnO0FXmLpLQMWQ'
+NODE_ID_TO_INDEX_INPUT_TABLE = '//home/yr/fvelikon/nirvana/60ddc2e7-8ee2-4335-8405-a5460163c134/output1__1T_bNwvwTp6yNxd2miW8uQ'
 
 
 
-LOCAL_FILES_DIR = Path("/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music")
-LOCAL_FILES_ST_FEATURES_DIR = LOCAL_FILES_DIR / "spatiotemporal_features"
-LOCAL_FILES_ST_FEATURES_DIR.mkdir(exist_ok=True, parents=True)
-
-
-DATASET_OUTPUT_YT_DIR = '//home/yr/fvelikon/graph_time_series/datasets/music'
+LOCAL_FILES_DIR = Path("/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music_truncated")
 
 
 N_PARALLEL_PROCESSES = 16
@@ -277,6 +272,7 @@ def main():
                 int(mktime(dt.timetuple())) for dt in datetime_indices
             ]).reshape(-1, 1, 1),
         temporal_node_feature_names=temporal_node_feature_names,
+        spatiotemporal_node_feature_names=spatiotemporal_node_feature_names,
         spatiotemporal_node_features=spatiotemporal_node_features,
         num_feature_names=num_feature_names,
         bin_feature_names=bin_feature_names,

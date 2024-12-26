@@ -143,7 +143,8 @@ class Dataset:
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
-                 device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = "/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music/spatiotemporal_features_memmap.pt"):
+                 device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None):
+
         DATA_ROOT = "data"
         # torch.set_default_device(device)
         # NOTE this code can crash if the dataset doesn't have specified format
@@ -632,16 +633,9 @@ class Dataset:
 
         temporal_features = self.temporal_features[timestamps_batch].to(self.device).squeeze(1)\
             .repeat_interleave(repeats=self.num_nodes, dim=0)
-        # print("Loaded temporal features to gpu")
-        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch[0]:timestamps_batch[-1]+1]
-        # print("Returned indexed spt features")
-        spatiotemporal_features = spatiotemporal_features.detach()
-        # print("Detached spt features")
-        spatiotemporal_features = spatiotemporal_features.clone()
-        # print("Cloned spt features")
+        spatiotemporal_features = self.spatiotemporal_features[timestamps_batch]
         spatiotemporal_features= spatiotemporal_features.to(self.device, non_blocking=True)\
             .flatten(start_dim=0, end_dim=1)
-        print("Loaded spatiotemporal features to gpu")
 
         if batch_size == self.train_batch_size:
             spatial_features = self.spatial_features_batched_train.squeeze(0)

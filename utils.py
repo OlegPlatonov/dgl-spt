@@ -378,6 +378,16 @@ class DummyHandler(StateHandler):
     pass
 
 
+def getitem_wrapper(func: tp.Callable[[int | torch.Tensor], torch.Tensor]):
+
+    def _inner_func(idx: int | torch.Tensor):
+        print(f"Accessing {idx=}")
+
+        result = func(idx)
+        return result
+    return _inner_func
+
+
 class TensorMemmapAdapter:
     """
     Wraps memmap numpy object and supports
@@ -388,36 +398,28 @@ class TensorMemmapAdapter:
     def __repr__(self) -> str:
         return repr(self._inner_memmap)
 
-    # @lru_cache(self._inner_memmap.shape[0]/_inner_memmap)
-    # def _get_by_idx(self, idx: int):
-    #     pass
-
+    @getitem_wrapper
     def __getitem__(self, idx: int | torch.Tensor) -> torch.Tensor:
-        print(f"Accessing {idx=}")
-        if isinstance(idx, torch.Tensor):
-            # idx = idx.tolist()
-            # items = torch.cat([self._inner_memmap[i:i+1, ...] for i in idx])
-            items = self._inner_memmap[idx[0]:idx[-1]+1]
-            print(f"Accessed {idx=}!")
-            return items
-        return torch.tensor(self._inner_memmap[idx])
+        return torch.from_numpy(self._inner_memmap[idx])
 
 
-def get_tensor_or_wrap_memmap(array_or_memmap: np.ndarray | torch.Tensor) -> torch.Tensor | TensorMemmapAdapter:
+def get_tensor_or_wrap_memmap(array_or_memmap: np.ndarray | torch.Tensor | np.memmap) -> torch.Tensor | TensorMemmapAdapter:
     """
     Either returns tensor or wraps tensor logic aroung numpy memmap file
     """
     if isinstance(array_or_memmap, np.ndarray):
         return torch.from_numpy(array_or_memmap)
+    elif isinstance(array_or_memmap, np.memmap):
+        return torch.from_numpy(array_or_memmap)
     else:
-        return array_or_memmap # TensorMemmapAdapter(array_or_memmap)
-
+        return array_or_memmap  # for debug can be replaced with TensorMemmapWrapper
 
 def read_memmap(filepath: str,
                 shape: tuple[int, ...],
                 device: torch.device = None,
                 dtype: torch.dtype = torch.float32) -> torch.Tensor:
     number_of_elements = np.prod(shape)
-    return torch.load(f=filepath, weights_only=True, map_location=device, mmap=True)
-    # return torch.from_file(filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False).reshape(shape)
-    # return torch.from_numpy(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape)).detach().clone()
+
+    # return torch.load(f=filepath, weights_only=True, map_location=device, mmap=True)
+    return torch.from_file(filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False).reshape(shape)
+    # return torch.tensor(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape))

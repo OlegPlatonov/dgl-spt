@@ -211,6 +211,8 @@ def get_args(add_name: bool = True):
     parser.add_argument('--num_threads', type=int, default=32)
     parser.add_argument('--nirvana', default=False, action='store_true',
                         help='Indicates that experiment is being run in Nirvana.')
+    parser.add_argument("--spatiotemporal_preprocessed_features_filepath", default=None, type=str,
+                        help="Optional argument indicating path to already preprocessed spatiotemporal component of a dataset")
 
     args = parser.parse_args()
 
@@ -224,6 +226,8 @@ def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
         loss = loss.sum() / (~targets_nan_mask).sum()
+        if torch.isnan(loss):
+            breakpoint()
 
     return loss
 
@@ -333,7 +337,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     elif nirvana:
         raise ValueError("You must specify `seed` when training in Nirvana, as it guarantees the same training behaviour after every rescheduling!")
 
-    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=False,
+    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True)
     val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
                                        drop_last=False)
@@ -463,7 +467,8 @@ def main():
         eval_batch_size=args.eval_batch_size,
         eval_max_num_predictions_per_step=args.eval_max_num_predictions_per_step,
         device=args.device,
-        nirvana=args.nirvana
+        nirvana=args.nirvana,
+        spatiotemporal_features_local_processed_memmap_name=args.spatiotemporal_preprocessed_features_filepath,
     )
 
     if args.metric == 'RMSE':
