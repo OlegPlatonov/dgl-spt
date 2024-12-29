@@ -5,6 +5,9 @@ __pycache__
 
 /data/*
 /experiments/*
-/notebooks/*
 
 !.gitkeep
+
+debug/
+
+*.memmap

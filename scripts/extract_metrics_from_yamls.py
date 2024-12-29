@@ -30,8 +30,8 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
         TAG = args["dataset"].replace("-", "_")
 
         metric_name = args["metric"]
-        
-        args.pop("name")
+
+        args["experiment_name"] = args.pop("name")
 
 
         metric_field_to_pulsar_unified = {

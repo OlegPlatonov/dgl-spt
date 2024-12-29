@@ -1,16 +1,20 @@
 import os
+import typing as tp
+from pathlib import Path
 import yaml
 import numpy as np
+import torch
+from nirvana_utils import copy_snapshot_to_out, copy_out_to_snapshot
 
+TorchStateDict = tp.Mapping[str, torch.FloatTensor]
 
 class Logger:
-    def __init__(self, args):
+    def __init__(self, args, start_from_scratch=True):
         if args.dataset.endswith('.npz'):
             dataset_name = os.path.splitext(os.path.basename(args.dataset))[0].replace('_', '-')
         else:
             dataset_name = args.dataset
 
-        self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset_name=dataset_name, experiment_name=args.name)
         self.nirvana = args.nirvana
         self.metric = args.metric
         self.do_not_evaluate_on_test = args.do_not_evaluate_on_test
@@ -20,22 +24,58 @@ class Logger:
         self.best_epochs = []
         self.num_runs = args.num_runs
         self.cur_run = None
+        self.in_nirvana = args.nirvana
 
-        print(f'Results will be saved to {self.save_dir}.')
-        with open(os.path.join(self.save_dir, 'args.yaml'), 'w') as file:
-            yaml.safe_dump(vars(args), file, sort_keys=False)
+        if start_from_scratch:
+            self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset_name=dataset_name, experiment_name=args.name)
+
+            print(f'Results will be saved to {self.save_dir}.')
+            with open(os.path.join(self.save_dir, 'args.yaml'), 'w') as file:
+                yaml.safe_dump(vars(args), file, sort_keys=False)
+            self.current_run_already_started: bool | None = False
+        else:
+            self.save_dir = None  # Will be set during restarting
+            self.current_run_already_started = None
+
+    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started):
+        self.val_metrics = val_metrics
+        self.test_metrics = test_metrics
+        self.cur_run = cur_run
+        self.best_steps = best_steps
+        self.best_epochs = best_epochs
+        self.save_dir = save_dir
+        self.current_run_already_started = current_run_already_started
+        print(f"Logging will be resumed at save directory {self.save_dir}")
+
+    def get_parameters_for_checkpoint(self) -> dict[str, tp.Any]:
+        return dict(
+            val_metrics=self.val_metrics,
+            test_metrics=self.test_metrics,
+            cur_run=self.cur_run,
+            best_steps=self.best_steps,
+            best_epochs=self.best_epochs,
+            save_dir=self.save_dir,
+            current_run_already_started=self.current_run_already_started,
+        )
 
     def start_run(self, run):
-        self.cur_run = run
+        assert self.current_run_already_started is not None
 
-        self.val_metrics.append(None)
-        if not self.do_not_evaluate_on_test:
-            self.test_metrics.append(None)
+        if not self.current_run_already_started:
+            self.current_run_already_started = True
+            self.cur_run = run
 
-        self.best_steps.append(None)
-        self.best_epochs.append(None)
+            self.val_metrics.append(None)
+            if not self.do_not_evaluate_on_test:
+                self.test_metrics.append(None)
 
-        print(f'Starting run {run}/{self.num_runs}...')
+            self.best_steps.append(None)
+            self.best_epochs.append(None)
+
+            print(f'Starting run {run}/{self.num_runs}...')
+        else:
+            print(f'Resuming run {run}/{self.num_runs}...')
+
 
     def update_metrics(self, metrics, step, epoch):
         if self.val_metrics[-1] is None or metrics[f'val {self.metric}'] < self.val_metrics[-1]:
@@ -48,6 +88,7 @@ class Logger:
 
     def finish_run(self):
         self.save_metrics()
+        self.current_run_already_started = False
 
         if self.do_not_evaluate_on_test:
             print(f'Finished run {self.cur_run}. '
@@ -161,3 +202,224 @@ class NirvanaNpzDataWrapper:
 
     def __contains__(self, array_name: str):
         return os.path.exists(self.get_array_path(array_name))
+
+class StateHandler:
+    def __init__(self, checkpoint_file_path: Path, checkpoint_dir: Path, checkpoint_steps_interval: int) -> None:
+        self.checkpoint_file_path = checkpoint_file_path
+        self.checkpoint_steps_interval = checkpoint_steps_interval
+        self.checkpoint_dir = checkpoint_dir
+
+        self.num_runs_completed: int = 0
+        self.epochs_finished: int = 0
+        self.steps_after_run_start: int = 0
+        self.optimizer_steps_done: int = 0
+        self.loss: float = 0.0
+
+        self.model: torch.nn.Module = ...
+        self.optimizer: torch.optim.Optimizer = ...
+        self.grad_scaler: torch.amp.GradScaler = ...
+        self.logger: Logger = ...
+
+        self._model_state: TorchStateDict | None = None
+        self._optimizer_state: TorchStateDict | None = None
+        self._grad_scaler_state: TorchStateDict | None = None
+        self._logger_state: dict[str, tp.Any] | None = None
+
+
+    def load_checkpoint(self, initial_loading: bool = False) -> None:
+        pass
+
+    def add_logger(self, logger: Logger) -> None:
+        assert self.logger is Ellipsis
+        self.logger = logger
+
+        if self._logger_state is not None:
+            self.logger.set_parameters_from_restarted_job(**self._logger_state)
+            del self._logger_state
+
+    def add_model(self, model: torch.nn.Module) -> None:
+        assert self.model is Ellipsis
+        self.model = model
+
+        if self._model_state is not None:
+            self.model.load_state_dict(self._model_state)
+            del self._model_state
+
+    def add_optimizer(self, optimizer: torch.optim.Optimizer) -> None:
+        assert self.optimizer is Ellipsis
+        self.optimizer = optimizer
+
+        if self._optimizer_state is not None:
+            self.optimizer.load_state_dict(self._optimizer_state)
+            del self._optimizer_state
+
+    def add_grad_scaler(self, scaler: torch.amp.GradScaler) -> None:
+        assert self.grad_scaler is Ellipsis
+        self.grad_scaler = scaler
+
+        if self._grad_scaler_state is not None:
+            self.grad_scaler.load_state_dict(self._grad_scaler_state)
+            del self._grad_scaler_state
+
+    def step(self) -> None:
+        pass
+    
+    def finish_epoch(self) -> None:
+        pass
+
+    def finish_run(self) -> None:
+        del self.model
+        del self.optimizer
+        del self.grad_scaler
+
+        self.model = ...
+        self.optimizer = ...
+        self.grad_scaler = ...
+
+    def save_checkpoint(self, finish_run: bool = False) -> None:
+        pass
+
+
+# TODO check that the model is the same after being passed here
+# TODO checkpoint handling
+class NirvanaStateHandler(StateHandler):
+
+    def __init__(self, checkpoint_file_path: Path, checkpoint_dir: Path, checkpoint_steps_interval: int) -> None:
+        # initialize training attributes
+        super().__init__(checkpoint_file_path=checkpoint_file_path, checkpoint_dir=checkpoint_dir, checkpoint_steps_interval=checkpoint_steps_interval)
+
+    @property
+    def current_run_model_state_dict(self) -> TorchStateDict:
+        return self.model.state_dict()
+
+    @property
+    def current_run_optimizer_state_dict(self) -> TorchStateDict:
+        return self.optimizer.state_dict()
+
+    @property
+    def current_run_scaler_state(self) -> TorchStateDict:
+        return self.grad_scaler.state_dict()
+
+    @property
+    def logger_state(self) -> dict[str, tp.Any]:
+        return self.logger.get_parameters_for_checkpoint()
+
+        # self.logger.val_metrics = val_metrics
+        # self.logger.test_metrics = test_metrics
+        # self.logger.cur_run = cur_run
+        # self.logger.best_steps = best_steps
+        # self.logger.best_epochs = best_epochs
+        # self.logger.save_dir = save_dir
+
+    def load_checkpoint(self, initial_loading: bool = False):
+        if initial_loading:
+            copy_snapshot_to_out(self.checkpoint_dir)
+
+        if self.checkpoint_file_path.exists():
+            # if path exists, thus logger state always nonempty
+            state_dict: dict[str, TorchStateDict | dict[str, tp.Any] | int | float] = torch.load(self.checkpoint_file_path, weights_only=True)
+            self._logger_state = state_dict["logger_state"]
+            self._model_state = state_dict["model_state"]
+            self._optimizer_state = state_dict["optimizer_state"]
+            self._grad_scaler_state = state_dict["scaler_state"]
+
+            self.steps_after_run_start = state_dict["steps_after_run_start"]
+            self.epochs_finished = state_dict["epochs_finished"]
+            self.optimizer_steps_done = state_dict["optimizer_steps_done"]
+            self.loss = state_dict["loss"]
+            self.num_runs_completed = state_dict["runs_completed"]
+
+    def save_checkpoint(self, finish_run: bool = False) -> None:
+        print(f"Saving checkpoint to {self.checkpoint_file_path}")
+        if finish_run:
+            # if run is finished, there is no need to save model's weights and optimizer
+            overall_state_dict = dict(
+                steps_after_run_start=0,
+                epochs_finished=0,
+                optimizer_steps_done=0,
+                loss=0.0,
+                logger_state=self.logger_state,
+                model_state=None,
+                optimizer_state=None,
+                scaler_state=None,
+                runs_completed=self.num_runs_completed,
+            )
+        else:
+            overall_state_dict = dict(
+                steps_after_run_start=self.steps_after_run_start,
+                epochs_finished=self.epochs_finished,
+                optimizer_steps_done=self.optimizer_steps_done,
+                loss=self.loss,
+                logger_state=self.logger_state,
+                model_state=self.current_run_model_state_dict,
+                optimizer_state=self.current_run_optimizer_state_dict,
+                scaler_state=self.current_run_scaler_state,
+                runs_completed=self.num_runs_completed,
+            )
+
+        torch.save(overall_state_dict, f=self.checkpoint_file_path)
+        copy_out_to_snapshot(self.checkpoint_dir, dump=True)
+
+    def step(self) -> None:
+        self.steps_after_run_start += 1
+        if self.steps_after_run_start % self.checkpoint_steps_interval == 0:
+            self.save_checkpoint()
+
+    def finish_epoch(self) -> None:
+        self.epochs_finished += 1
+        self.save_checkpoint()
+
+    def finish_run(self) -> None:
+        self.num_runs_completed += 1
+        self.save_checkpoint(finish_run=True)
+        super().finish_run()
+
+class DummyHandler(StateHandler):
+    pass
+
+
+def getitem_wrapper(func: tp.Callable[[int | torch.Tensor], torch.Tensor]):
+
+    def _inner_func(idx: int | torch.Tensor):
+        print(f"Accessing {idx=}")
+
+        result = func(idx)
+        return result
+    return _inner_func
+
+
+class TensorMemmapAdapter:
+    """
+    Wraps memmap numpy object and supports
+    """
+    def __init__(self, memmap_object: torch.Tensor) -> None:
+        self._inner_memmap: torch.Tensor = memmap_object
+
+    def __repr__(self) -> str:
+        return repr(self._inner_memmap)
+
+    @getitem_wrapper
+    def __getitem__(self, idx: int | torch.Tensor) -> torch.Tensor:
+        return torch.from_numpy(self._inner_memmap[idx])
+
+
+def get_tensor_or_wrap_memmap(array_or_memmap: np.ndarray | torch.Tensor | np.memmap) -> torch.Tensor | TensorMemmapAdapter:
+    """
+    Either returns tensor or wraps tensor logic aroung numpy memmap file
+    """
+    if isinstance(array_or_memmap, np.ndarray):
+        return torch.from_numpy(array_or_memmap)
+    elif isinstance(array_or_memmap, np.memmap):
+        return torch.from_numpy(array_or_memmap)
+    else:
+        return array_or_memmap  # for debug can be replaced with TensorMemmapWrapper
+
+def read_memmap(filepath: str,
+                shape: tuple[int, ...],
+                device: torch.device = None,
+                dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    number_of_elements = np.prod(shape)
+
+    # return torch.load(f=filepath, weights_only=True, map_location=device, mmap=True)
+    return torch.from_file(filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False).reshape(shape)
+    # return torch.tensor(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape))
