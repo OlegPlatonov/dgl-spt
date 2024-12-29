@@ -341,6 +341,7 @@ class FeaturesPreparatorForDeepModels(nn.Module):
                 node_embs = node_embs.unsqueeze(1).expand(-1, seq_len, -1)
 
             x = torch.cat([x, node_embs], axis=-1)
+
         return x
 
 

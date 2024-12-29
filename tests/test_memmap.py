@@ -9,6 +9,7 @@ import os
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
+
 def worker(memmap_path, start_index, end_index, value, shape):
     """
     Worker function to write to a specific segment of the memmap file.
@@ -33,6 +34,7 @@ def worker(memmap_path, start_index, end_index, value, shape):
         print("After: ", tensor)
         # Explicitly flush changes
         memmap.flush()
+
 
 def main():
     memmap_path = "/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music/spatiotemporal_features/test.memmap"
@@ -70,6 +72,7 @@ def main():
     # Verify the result
     final_array = np.memmap(memmap_path, dtype=dtype, mode='r', shape=shape)
     print("Final array:", final_array[:])
+
 
 if __name__ == '__main__':
     main()

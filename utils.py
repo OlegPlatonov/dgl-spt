@@ -1,12 +1,14 @@
 import os
 import typing as tp
-from pathlib import Path
 import yaml
+from pathlib import Path
 import numpy as np
 import torch
 from nirvana_utils import copy_snapshot_to_out, copy_out_to_snapshot
 
+
 TorchStateDict = tp.Mapping[str, torch.FloatTensor]
+
 
 class Logger:
     def __init__(self, args, start_from_scratch=True):
@@ -75,7 +77,6 @@ class Logger:
             print(f'Starting run {run}/{self.num_runs}...')
         else:
             print(f'Resuming run {run}/{self.num_runs}...')
-
 
     def update_metrics(self, metrics, step, epoch):
         if self.val_metrics[-1] is None or metrics[f'val {self.metric}'] < self.val_metrics[-1]:
@@ -203,6 +204,7 @@ class NirvanaNpzDataWrapper:
     def __contains__(self, array_name: str):
         return os.path.exists(self.get_array_path(array_name))
 
+
 class StateHandler:
     def __init__(self, checkpoint_file_path: Path, checkpoint_dir: Path, checkpoint_steps_interval: int) -> None:
         self.checkpoint_file_path = checkpoint_file_path
@@ -224,7 +226,6 @@ class StateHandler:
         self._optimizer_state: TorchStateDict | None = None
         self._grad_scaler_state: TorchStateDict | None = None
         self._logger_state: dict[str, tp.Any] | None = None
-
 
     def load_checkpoint(self, initial_loading: bool = False) -> None:
         pass
@@ -374,17 +375,19 @@ class NirvanaStateHandler(StateHandler):
         self.save_checkpoint(finish_run=True)
         super().finish_run()
 
+
 class DummyHandler(StateHandler):
     pass
 
 
 def getitem_wrapper(func: tp.Callable[[int | torch.Tensor], torch.Tensor]):
-
     def _inner_func(idx: int | torch.Tensor):
         print(f"Accessing {idx=}")
 
         result = func(idx)
+
         return result
+
     return _inner_func
 
 
@@ -414,6 +417,7 @@ def get_tensor_or_wrap_memmap(array_or_memmap: np.ndarray | torch.Tensor | np.me
     else:
         return array_or_memmap  # for debug can be replaced with TensorMemmapWrapper
 
+
 def read_memmap(filepath: str,
                 shape: tuple[int, ...],
                 device: torch.device = None,
@@ -421,5 +425,7 @@ def read_memmap(filepath: str,
     number_of_elements = np.prod(shape)
 
     # return torch.load(f=filepath, weights_only=True, map_location=device, mmap=True)
-    return torch.from_file(filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False).reshape(shape)
+    return torch.from_file(
+        filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False
+    ).reshape(shape)
     # return torch.tensor(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape))

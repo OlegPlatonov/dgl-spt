@@ -1,7 +1,7 @@
 import argparse
 from tqdm import tqdm
 from pathlib import Path
-
+from time import perf_counter
 
 import torch
 from torch.nn import functional as F
@@ -11,16 +11,14 @@ from dataset import Dataset
 from models import ModelRegistry
 from utils import Logger, get_parameter_groups, DummyHandler, NirvanaStateHandler, StateHandler
 
-from time import perf_counter
-
-
 
 def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
+
     if add_name:
-        # need this for automatic config generation
+        # This is needed for automatic config generation.
         parser.add_argument('--name', type=str, required=True, help='Experiment name.')
-    parser.add_argument('--checkpoint_steps_interval', type=int, default=1000, help='Interval for saving experiment state to $SNAPSHOT_PATH')
+
     parser.add_argument('--save_dir', type=str, default='experiments', help='Base directory for saving information.')
     parser.add_argument('--dataset', type=str, default='pems-bay',
                         help='Dataset name (for an existing dataset in the data directory) or a path to a .npz file '
@@ -137,6 +135,11 @@ def get_args(add_name: bool = True):
     parser.add_argument('--plr_past_targets_shared_frequencies', default=False, action='store_true',
                         help='Only used if plr_past_targets is True.')
 
+    # Use already preprocessed features.
+    parser.add_argument('--spatiotemporal_preprocessed_features_filepath', default=None, type=str,
+                        help='Optional argument indicating path to already preprocessed spatiotemporal features of '
+                             'the dataset that can be used to save preprocessing time and memory.')
+
     # Model type selection.
     parser.add_argument('--model_class', type=str, default='SingleInputGNN',
                         choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN'])
@@ -211,12 +214,13 @@ def get_args(add_name: bool = True):
     parser.add_argument('--num_threads', type=int, default=32)
     parser.add_argument('--nirvana', default=False, action='store_true',
                         help='Indicates that experiment is being run in Nirvana.')
-    parser.add_argument("--spatiotemporal_preprocessed_features_filepath", default=None, type=str,
-                        help="Optional argument indicating path to already preprocessed spatiotemporal component of a dataset")
+    parser.add_argument('--checkpoint_steps_interval', type=int, default=1000,
+                        help='Only used in Nirvana: interval for saving experiment state to $SNAPSHOT_PATH.')
 
     args = parser.parse_args()
 
     return args, parser
+
 
 def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
     features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets_for_loss(timestamps_batch)
@@ -226,6 +230,7 @@ def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
         loss = loss.sum() / (~targets_nan_mask).sum()
+
         if torch.isnan(loss):
             breakpoint()
 
@@ -328,14 +333,16 @@ def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss
     return metrics
 
 
-def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr, weight_decay,
-          run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None, do_not_evaluate_on_test=False,
-          nirvana=False):
+def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr,
+          weight_decay, run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None,
+          do_not_evaluate_on_test=False, nirvana=False):
 
     if seed is not None:
         torch.manual_seed(seed)
     elif nirvana:
-        raise ValueError("You must specify `seed` when training in Nirvana, as it guarantees the same training behaviour after every rescheduling!")
+        raise ValueError(
+            'You must specify seed when training in Nirvana to ensure the same behaviour after every rescheduling.'
+        )
 
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True)
@@ -345,7 +352,9 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                                         drop_last=False)
 
     num_steps = len(train_timestamps_loader) * num_epochs
+
     model.to(device)
+
     parameter_groups = get_parameter_groups(model)
     optimizer = torch.optim.AdamW(parameter_groups, lr=lr, weight_decay=weight_decay)
     gradscaler = torch.amp.GradScaler(enabled=use_gradscaler)
@@ -355,41 +364,35 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     state_handler.add_grad_scaler(scaler=gradscaler)
 
     logger.start_run(run=run_id)
-
     epoch = state_handler.epochs_finished + 1
     steps_till_optimizer_step = num_accumulation_steps
     optimizer_steps_till_eval = eval_every
     metrics = {}
-
     train_timestamps_loader_iterator = iter(train_timestamps_loader)
     model.train()
     starting_step_idx = state_handler.steps_after_run_start
     with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
-        
         progress_bar.n = starting_step_idx
-
         if starting_step_idx > 0:
             t1 = perf_counter()
-            print(f"Skipping {starting_step_idx} batches after rescheduling")
+            print(f'Skipping {starting_step_idx} batches after rescheduling.')
             for step_to_skip in range(starting_step_idx % len(train_timestamps_loader_iterator)):
                 next(train_timestamps_loader_iterator)
             t2 = perf_counter()
-            print(f"Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds")
+            print(f'Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds.')
 
         for step in range(starting_step_idx + 1, num_steps + 1):
             cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
             cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
                                          loss_fn=loss_fn, amp=amp)
-            # loss += cur_step_loss
             state_handler.loss += cur_step_loss
 
             steps_till_optimizer_step -= 1
 
             if steps_till_optimizer_step == 0:
-                # loss /= num_accumulation_steps  # redundant as StateHandler copies this logic
-                optimizer_step(loss=state_handler.loss / num_accumulation_steps, optimizer=optimizer, gradscaler=gradscaler)
+                optimizer_step(loss=state_handler.loss / num_accumulation_steps, optimizer=optimizer,
+                               gradscaler=gradscaler)
                 state_handler.loss = 0
-                # optimizer_steps_done += 1  # redundant as StateHandler copies this logic
                 state_handler.optimizer_steps_done += 1
 
                 steps_till_optimizer_step = num_accumulation_steps
@@ -479,13 +482,17 @@ def main():
         raise ValueError(f'Unsupported metric: {args.metric}.')
 
     CHECKPOINT_DIR = Path(args.save_dir)
-    CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / "state.pt"
+    CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / 'state.pt'
 
     checkpoint_steps_interval = args.checkpoint_steps_interval
     if args.nirvana:
-        state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
+        state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
+                                                          checkpoint_dir=CHECKPOINT_DIR,
+                                                          checkpoint_steps_interval=checkpoint_steps_interval)
     else:
-        state_handler: StateHandler = DummyHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME, checkpoint_dir=CHECKPOINT_DIR, checkpoint_steps_interval=checkpoint_steps_interval)
+        state_handler: StateHandler = DummyHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
+                                                   checkpoint_dir=CHECKPOINT_DIR,
+                                                   checkpoint_steps_interval=checkpoint_steps_interval)
 
     state_handler.load_checkpoint(initial_loading=True)
     whether_checkpoint_exists = CHECKPOINT_STATE_FILENAME.exists()
@@ -534,10 +541,8 @@ def main():
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
               device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
-              do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana,
-              # nirvana specific arguments:
-              state_handler=state_handler,
-              )
+              do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana, state_handler=state_handler)
+
         state_handler.load_checkpoint()
 
     logger.print_metrics_summary()
