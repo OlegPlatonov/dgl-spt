@@ -62,15 +62,13 @@ def get_args(add_name: bool = True):
     # will be predicted by the model during training).
     parser.add_argument('--targets_for_loss_transform', type=str, default='standard-scaler',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
-                                 'power-transform-yeo-johnson', 'quantile-transform-normal',
-                                 'quantile-transform-uniform'])
+                                 'quantile-transform-normal', 'quantile-transform-uniform'])
 
     # Transformation applied to targets that will be provided as features to the model (targets from the past timestamps
     # and the current timestamp).
     parser.add_argument('--targets_for_features_transform', type=str, default='quantile-transform-normal',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
-                                 'power-transform-yeo-johnson', 'quantile-transform-normal',
-                                 'quantile-transform-uniform'])
+                                 'quantile-transform-normal', 'quantile-transform-uniform'])
 
     # NaN value imputation applied to targets that will be used for features (targets from past timestamps and current
     # timestamp).
@@ -98,8 +96,7 @@ def get_args(add_name: bool = True):
     # Numerical features preprocessing.
     parser.add_argument('--numerical_features_transform', type=str, default='quantile-transform-normal',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
-                                 'power-transform-yeo-johnson', 'quantile-transform-normal',
-                                 'quantile-transform-uniform'])
+                                 'quantile-transform-normal', 'quantile-transform-uniform'])
     parser.add_argument('--numerical_features_nan_imputation_strategy', type=str, default='most_frequent',
                         choices=['mean', 'median', 'most_frequent'],
                         help='NaN imputation for numerical features. Imputation is done based on spatial statistics '
