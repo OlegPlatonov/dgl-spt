@@ -92,6 +92,22 @@ class Dataset:
 
         # Impute NaNs in targets.
         if targets_for_features_nan_imputation_strategy == 'prev':
+            if targets_nan_mask.all(axis=0).any():
+                # Before imputing any other targets, let's handle the nodes in the dataset for which no targets are
+                # available at all. We may not want to remove such nodes because their position in the graph and their
+                # features may provide useful information. But we need to impute their targets somehow and we cannot do
+                # it with previous target values because there are no such values for these nodes. We will impute these
+                # targets in one of two ways.
+                if not targets_nan_mask.all(axis=1).any():
+                    # If there are no timestamps for which all targets are NaN, then we will impute targets of nodes
+                    # with no known targets at each timestamp with the mean of all known targets at this timestamp.
+                    targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets, axis=1)
+                else:
+                    # If there are timestamps for which all targets are NaN, then we will impute targets of nodes
+                    # with no known targets at each timestamp with the mean of all known targets of all nodes at all
+                    # train timestamps.
+                    targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets[all_train_timestamps])
+
             if targets_nan_mask[all_train_timestamps].all(axis=0).any():
                 raise RuntimeError(
                     'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
@@ -99,14 +115,15 @@ class Dataset:
                     'nodes) or set imputation_startegy_for_nan_targets argument to "zero".'
                 )
 
-            # First, impute NaN targets with forward fill.
+            # Now, we will impute NaN targets with the latest known target value by running forward fill.
             targets_df = pd.DataFrame(targets, copy=False)
             targets_df.ffill(axis=0, inplace=True)
 
-            # If some nodes have NaN targets starting from the very beginning of the time series, these NaN values are
-            # still left not imputed after forward fill. So, we now apply backward fill to them. Note that we have
-            # already verified that there are at least some train target values that are not NaN for each node, and
-            # thus it is guaranteed that this will not lead to future targets leakage from val and test timestamps.
+            # If some nodes have NaN targets starting from the first train timestamp, these NaN values are still left
+            # not imputed after forward fill. We will impute them with the first known target value by running backward
+            # fill. Note that we have already verified that there are at least some train target values that are not
+            # NaN for each node, and thus it is guaranteed that this will not lead to future targets leakage from val
+            # and test timestamps.
             if np.isnan(targets_df.values).any():
                 targets_df.bfill(axis=0, inplace=True)
 
