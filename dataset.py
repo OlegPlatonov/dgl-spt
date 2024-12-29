@@ -36,7 +36,8 @@ class Dataset:
                  initialize_learnable_node_embeddings_with_deepwalk=False,
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
-                 device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None):
+                 device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
+                 pyg=False):
 
         DATA_ROOT = 'data'
 
@@ -236,6 +237,13 @@ class Dataset:
         edges = torch.from_numpy(data['edges'])
 
         if use_forward_and_reverse_edges_as_different_edge_types:
+            if pyg:
+                raise ValueError(
+                    'The use of both forward and reverse edges in the graph as different edge types is not supported '
+                    'for PyG graphs. Arguments use_forward_and_reverse_edges_as_different_edge_types and pyg cannot be '
+                    'both True.'
+                )
+
             graph = dgl.heterograph(
                 {
                     ('node', 'forward_edge', 'node'): (edges[:, 0], edges[:, 1]),
@@ -259,6 +267,13 @@ class Dataset:
         train_batched_graph = dgl.batch([graph for _ in range(train_batch_size)])
         if eval_batch_size is not None and eval_batch_size != train_batch_size:
             eval_batched_graph = dgl.batch([graph for _ in range(eval_batch_size)])
+
+        if pyg:
+            # Convert DGL graphs to PyG edge indices (which are simply torch tensors storing edges).
+            graph = torch.stack(graph.edges(), axis=0)
+            train_batched_graph = torch.stack(train_batched_graph.edges(), axis=0)
+            if eval_batch_size is not None and eval_batch_size != train_batch_size:
+                eval_batched_graph = torch.stack(eval_batched_graph.edges(), axis=0)
 
         # We do not need the original data anymore.
         del data
