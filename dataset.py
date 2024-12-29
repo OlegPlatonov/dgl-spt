@@ -710,15 +710,15 @@ class Dataset:
         # Transform numerical features and impute NaNs in numerical features.
         if numerical_features_mask.any():
             numerical_features = features[:, :, numerical_features_mask]
-            numerical_features_orig_shape = numerical_features.shape
-            numerical_features = numerical_features.reshape(-1, numerical_features.shape[2])
+
             # Transform numerical features.
             numerical_features_transform = self.transforms[numerical_features_transform]()
             numerical_features_transform.fit(
-                numerical_features[all_train_timestamps]
+                numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
             )
+            numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
-                numerical_features
+                numerical_features.reshape(-1, numerical_features.shape[2])
             ).reshape(*numerical_features_orig_shape)
 
             # Impute NaNs in numerical features. Note that NaNs are imputed based on spatial statistics, and are
