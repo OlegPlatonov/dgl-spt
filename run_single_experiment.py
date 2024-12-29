@@ -66,7 +66,7 @@ def get_args(add_name: bool = True):
 
     # Transformation applied to targets that will be provided as features to the model (targets from the past timestamps
     # and the current timestamp).
-    parser.add_argument('--targets_for_features_transform', type=str, default='quantile-transform-normal',
+    parser.add_argument('--targets_for_features_transform', type=str, default='standard-scaler',
                         choices=['none', 'standard-scaler', 'min-max-scaler', 'robust-scaler',
                                  'quantile-transform-normal', 'quantile-transform-uniform'])
 
