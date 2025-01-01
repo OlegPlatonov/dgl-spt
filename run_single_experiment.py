@@ -431,13 +431,13 @@ def train_with_timestamps_sampler_draft(model, dataset, loss_fn, metric, logger:
         )
     # NOTE I have modified high-level logic of the functiom, including proper epoch restarting and testoring proper indices, now we need to modify the behavior of the inner functions
     # NOTE I plan to move this initialization logic to a separate function as it's reused multiple times
-    train_sampler = TimestampsSampler(size=len(dataset.train_timestamps), batch_size=dataset.train_batch_size, shuffle=True, seed=seed
+    train_sampler = TimestampsSampler(size=len(dataset.train_timestamps), batch_size=dataset.train_batch_size, shuffle=True, seed=seed,
                                       number_of_batches_to_skip=state_handler.steps_after_run_start)  # NOTE we checkpoint only train dataloader as it's the longest one
     val_sampler = TimestampsSampler(size=len(dataset.val_timestamps), batch_size=dataset.eval_batch_size, seed=seed)
     test_sampler = TimestampsSampler(size=len(dataset.test_timestamps), batch_size=dataset.eval_batch_size, seed=seed)
 
     train_loader = DataLoader(dataset=..., # Wrapper here TODO
-                              ...)
+                              )
     val_loader = ... # -//- TODO
     test_loader = ... # -//- TODO
 
@@ -503,7 +503,7 @@ def train_with_timestamps_sampler_draft(model, dataset, loss_fn, metric, logger:
 
             train_sampler = TimestampsSampler(size=len(dataset.train_timestamps), batch_size=dataset.train_batch_size, shuffle=True,
                                               number_of_batches_to_skip=0)
-            train_loader = DataLoader(dataset=..., ...) # Wrapper here TODO
+            train_loader = DataLoader(dataset=...) # Wrapper here TODO
             ## TODO wrap evaluation in a separate function is it's reused here and in the training loop
             
             progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
@@ -516,8 +516,6 @@ def train_with_timestamps_sampler_draft(model, dataset, loss_fn, metric, logger:
 
             logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
             model.train()
-
-            state_handler.save_checkpoint()
 
             state_handler.finish_epoch()
     
