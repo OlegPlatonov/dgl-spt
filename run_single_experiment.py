@@ -429,11 +429,12 @@ def train_with_timestamps_sampler_draft(model, dataset, loss_fn, metric, logger:
         raise ValueError(
             'You must specify seed when training in Nirvana to ensure the same behaviour after every rescheduling.'
         )
+    # NOTE I have modified high-level logic of the functiom, including proper epoch restarting and testoring proper indices, now we need to modify the behavior of the inner functions
     # NOTE I plan to move this initialization logic to a separate function as it's reused multiple times
-    train_sampler = TimestampsSampler(size=len(dataset.train_timestamps), batch_size=dataset.train_batch_size, shuffle=True,
+    train_sampler = TimestampsSampler(size=len(dataset.train_timestamps), batch_size=dataset.train_batch_size, shuffle=True, seed=seed
                                       number_of_batches_to_skip=state_handler.steps_after_run_start)  # NOTE we checkpoint only train dataloader as it's the longest one
-    val_sampler = TimestampsSampler(size=len(dataset.val_timestamps), batch_size=dataset.eval_batch_size)
-    test_sampler = TimestampsSampler(size=len(dataset.test_timestamps), batch_size=dataset.eval_batch_size)
+    val_sampler = TimestampsSampler(size=len(dataset.val_timestamps), batch_size=dataset.eval_batch_size, seed=seed)
+    test_sampler = TimestampsSampler(size=len(dataset.test_timestamps), batch_size=dataset.eval_batch_size, seed=seed)
 
     train_loader = DataLoader(dataset=..., # Wrapper here TODO
                               ...)
@@ -453,7 +454,6 @@ def train_with_timestamps_sampler_draft(model, dataset, loss_fn, metric, logger:
     state_handler.add_grad_scaler(scaler=gradscaler)
 
     logger.start_run(run=run_id)
-    epoch = state_handler.epochs_finished + 1
     steps_till_optimizer_step = num_accumulation_steps
     optimizer_steps_till_eval = eval_every
     metrics = {}
@@ -463,7 +463,7 @@ def train_with_timestamps_sampler_draft(model, dataset, loss_fn, metric, logger:
     with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
         progress_bar.n = starting_step_idx
 
-        for epoch in range(1, num_epochs):
+        for epoch in range(state_handler.epochs_finished+1, num_epochs):
             for cur_train_timestamps_batch in train_loader:
                 cur_step_loss = ... # TODO compute loss with already fetched data
                 state_handler.loss += cur_step_loss
