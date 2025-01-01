@@ -1,11 +1,12 @@
-import multiprocessing as mp
-mp.set_start_method('spawn', force=True)  # Ensure compatibility on all platforms
-
 import numpy as np
 import torch
+import os
+import multiprocessing as mp
+
+mp.set_start_method("spawn", force=True)  # Ensure compatibility on all platforms
+
 
 lock = mp.Lock()
-import os
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -23,7 +24,7 @@ def worker(memmap_path, start_index, end_index, value, shape):
     """
     global lock
     # Open the memory-mapped file
-    memmap = np.memmap(memmap_path, dtype='float32', mode='r+', shape=shape)
+    memmap = np.memmap(memmap_path, dtype="float32", mode="r+", shape=shape)
     # Convert to PyTorch tensor
     tensor = torch.from_numpy(memmap)
     print("Before: ", tensor)
@@ -39,10 +40,10 @@ def worker(memmap_path, start_index, end_index, value, shape):
 def main():
     memmap_path = "/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music/spatiotemporal_features/test.memmap"
     shape = (1000, 1000, 30)  # Example shape of the array
-    dtype = 'float32'
+    dtype = "float32"
 
     # Create the memory-mapped file
-    memmap = np.memmap(memmap_path, dtype=dtype, mode='w+', shape=shape)
+    memmap = np.memmap(memmap_path, dtype=dtype, mode="w+", shape=shape)
     # memmap[:] = 0  # Initialize with zeros
 
     # Define worker arguments
@@ -50,29 +51,28 @@ def main():
     segment_size = shape[0] // num_processes
 
     with mp.Pool(processes=num_processes) as pool:
-        
         arguments = []
         for i in range(num_processes):
-            
             start_index = i * segment_size
             end_index = (i + 1) * segment_size if i != num_processes - 1 else shape[0]
             value = i + 1  # Assign a unique value for each segment
-            arguments.append((
-                memmap_path,
-                start_index, 
-                end_index,
-                value,
-                shape,
-                
-            ))
+            arguments.append(
+                (
+                    memmap_path,
+                    start_index,
+                    end_index,
+                    value,
+                    shape,
+                )
+            )
         _ = pool.starmap(worker, arguments)
 
     memmap.flush()
 
     # Verify the result
-    final_array = np.memmap(memmap_path, dtype=dtype, mode='r', shape=shape)
+    final_array = np.memmap(memmap_path, dtype=dtype, mode="r", shape=shape)
     print("Final array:", final_array[:])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
