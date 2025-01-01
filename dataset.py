@@ -9,7 +9,6 @@ import torch
 import dgl
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
-from torch.utils.data import SequentialSampler
 
 from data_transforms import IdentityTransform, StandardScaler, MinMaxScaler, RobustScaler, QuantileTransform
 from utils import NirvanaNpzDataWrapper, get_tensor_or_wrap_memmap, read_memmap
@@ -831,15 +830,19 @@ class Dataset:
 
 
 class TimestampsSampler:
-    def __init__(self, size: int, batch_size: int, shuffle: bool = True, seed: int = 42, number_of_batches_to_skip: int = 0) -> None:
+    def __init__(self, size: int, batch_size: int, shuffle: bool = False, seed: int = 42, number_of_batches_to_skip: int = 0) -> None:
 
         self._generator = torch.Generator().manual_seed(seed)
         self._indices_to_sample: list[int] = self._get_sampler(size=size, batch_size=batch_size, shuffle=shuffle, number_of_batches_to_skip=number_of_batches_to_skip)
         
 
-    def _get_sampler(self, size: int, batch_size: int, shuffle: bool, number_of_batches_to_skip: int) -> SequentialSampler:
+    def _get_sampler(self, size: int, batch_size: int, shuffle: bool, number_of_batches_to_skip: int) -> list[int]:
         elements_to_skip = batch_size * number_of_batches_to_skip
-        
+        if elements_to_skip > size:
+            elements_to_skip = size % elements_to_skip  # in case where StateHandler puts here the number of overall steps during training instead of steps during epoch
+
+        if elements_to_skip > 0:
+            print(f'Skipping first {elements_to_skip} samples which comprise first {number_of_batches_to_skip} batches of data as they were already processed in the previous run')
         # now when we have generated the same sequence as before, we need to slice it to get only indices which haven't been processed yet during the previous run
         if shuffle:
             indices: torch.LongTensor = torch.randperm(n=size, generator=self._generator)
@@ -848,6 +851,9 @@ class TimestampsSampler:
 
         indices_to_sample: list[int] = indices[elements_to_skip:].tolist()
         return indices_to_sample
+
+    def __len__(self):
+        return len(self._indices_to_sample)
 
     def __iter__(self):
         yield from self._indices_to_sample

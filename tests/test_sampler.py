@@ -5,7 +5,7 @@ import pytest
 sys.path.append("../")
 sys.path.append("./")
 
-from dataset import SpatioTemporalSampler
+from dataset import TimestampsSampler
 
 
 @pytest.mark.parametrize("size, batch_size, seed", [(10, 2, 42), (12, 3, 123)])
@@ -14,7 +14,7 @@ def test_spatio_temporal_sampler_no_shuffle(size, batch_size, seed):
     Test that when shuffle=False, the sampler yields ascending indices [0, 1, 2, ..., size-1]
     and that it is reproducible for the same seed.
     """
-    sampler = SpatioTemporalSampler(
+    sampler = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=False,
@@ -25,7 +25,7 @@ def test_spatio_temporal_sampler_no_shuffle(size, batch_size, seed):
 
     assert indices == list(range(size))
 
-    sampler2 = SpatioTemporalSampler(
+    sampler2 = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=False,
@@ -42,7 +42,7 @@ def test_spatio_temporal_sampler_shuffle(size, batch_size, seed):
     Test that when shuffle=True, the sampler yields a shuffled permutation of the indices [0..size-1].
     Also test reproducibility when using the same seed.
     """
-    sampler = SpatioTemporalSampler(
+    sampler = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=True,
@@ -55,7 +55,7 @@ def test_spatio_temporal_sampler_shuffle(size, batch_size, seed):
 
     # Check reproducibility: creating a second sampler with the same seed and shuffle=True
     # should result in the exact same random permutation.
-    sampler2 = SpatioTemporalSampler(
+    sampler2 = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=True,
@@ -76,7 +76,7 @@ def test_spatio_temporal_sampler_skip_batches_no_shuffle(size, batch_size, seed,
     Test that when shuffle=False and we skip `number_of_batches_to_skip` batches,
     the sampler yields the correct slice of indices.
     """
-    sampler = SpatioTemporalSampler(
+    sampler = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=False,
@@ -101,7 +101,7 @@ def test_spatio_temporal_sampler_skip_batches_shuffle(size, batch_size, seed, sk
     the sampler yields the correct slice of a shuffled sequence.
     We also verify reproducibility with the same seed and skip.
     """
-    sampler = SpatioTemporalSampler(
+    sampler = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=True,
@@ -120,7 +120,7 @@ def test_spatio_temporal_sampler_skip_batches_shuffle(size, batch_size, seed, sk
     assert indices == expected
 
     # Check reproducibility with a second sampler having the same parameters
-    sampler2 = SpatioTemporalSampler(
+    sampler2 = TimestampsSampler(
         size=size,
         batch_size=batch_size,
         shuffle=True,
