@@ -336,14 +336,14 @@ class Dataset:
         past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
-                        deepwalk_embeddings.shape[2])  # TODO add features nan mask here !!!!!!! and targets nan mask too
+                        deepwalk_embeddings.shape[2])  # TODO add targets Nan mask
 
         past_targets_mask = np.zeros(features_dim, dtype=bool)
         past_targets_mask[:past_targets_features_dim] = True
 
         numerical_features_mask_extension = np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim,
-                                                     dtype=bool)  # TODO here nan mask
-        numerical_features_mask = np.concatenate([numerical_features_mask_extension, numerical_features_mask], axis=0)  # TODO here nan mask
+                                                     dtype=bool)
+        numerical_features_mask = np.concatenate([numerical_features_mask_extension, numerical_features_mask], axis=0)
 
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO FUTURE TARGETS THAT WILL BE PREDICTED
 
@@ -473,7 +473,7 @@ class Dataset:
 
         self.eval_max_num_timestamps_per_step = eval_max_num_predictions_per_step // self.targets_dim // num_nodes
 
-    def get_timestamp_features_as_single_input(self, timestamp):  # TODO features nan mask here
+    def get_timestamp_features_as_single_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
@@ -501,7 +501,7 @@ class Dataset:
 
         return features
 
-    def get_timestamp_features_as_sequence_input(self, timestamp):  # TODO features nan mask here
+    def get_timestamp_features_as_sequence_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
 
         past_targets = self.targets[past_timestamps].to(self.device)
