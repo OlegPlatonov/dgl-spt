@@ -632,8 +632,27 @@ def main():
 
     Model = ModelRegistry.get_model_class(args.model_class)
 
+    # moved checkpoint logic to the front as it will be needed for dataset preprocessing
+    CHECKPOINT_DIR = Path(args.save_dir)
+    CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / 'state.pt'
+
+    checkpoint_steps_interval = args.checkpoint_steps_interval
+    if args.nirvana:
+        state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
+                                                          checkpoint_dir=CHECKPOINT_DIR,
+                                                          checkpoint_steps_interval=checkpoint_steps_interval)
+    else:
+        state_handler: StateHandler = DummyHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
+                                                   checkpoint_dir=CHECKPOINT_DIR,
+                                                   checkpoint_steps_interval=checkpoint_steps_interval)
+    state_handler.load_checkpoint(initial_loading=True)
+    whether_checkpoint_exists = CHECKPOINT_STATE_FILENAME.exists()
+    logger = Logger(args=args, start_from_scratch=not whether_checkpoint_exists)
+    state_handler.add_logger(logger=logger)
+
     dataset = Dataset(
         name_or_path=args.dataset,
+        state_handler=state_handler,
         prediction_horizon=args.prediction_horizon,
         only_predict_at_end_of_horizon=args.only_predict_at_end_of_horizon,
         provide_sequnce_inputs=Model.sequence_input,
@@ -672,23 +691,6 @@ def main():
     else:
         raise ValueError(f'Unsupported metric: {args.metric}.')
 
-    CHECKPOINT_DIR = Path(args.save_dir)
-    CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / 'state.pt'
-
-    checkpoint_steps_interval = args.checkpoint_steps_interval
-    if args.nirvana:
-        state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
-                                                          checkpoint_dir=CHECKPOINT_DIR,
-                                                          checkpoint_steps_interval=checkpoint_steps_interval)
-    else:
-        state_handler: StateHandler = DummyHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
-                                                   checkpoint_dir=CHECKPOINT_DIR,
-                                                   checkpoint_steps_interval=checkpoint_steps_interval)
-
-    state_handler.load_checkpoint(initial_loading=True)
-    whether_checkpoint_exists = CHECKPOINT_STATE_FILENAME.exists()
-    logger = Logger(args=args, start_from_scratch=not whether_checkpoint_exists)
-    state_handler.add_logger(logger=logger)
     for run in range(state_handler.num_runs_completed + 1, args.num_runs + 1):
         model = Model(
             neighborhood_aggregation_name=args.neighborhood_aggregation,
