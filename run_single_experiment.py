@@ -245,6 +245,10 @@ def evaluate_on_val_or_test(model, dataset, split, loader, loss_fn, metric, amp=
     preds = []
     for cur_features in loader:
         cur_features = cur_features.to(dataset.device)
+        cur_features[:, :dataset.past_targets_features_dim] = dataset.transform_past_targets_for_features(
+            cur_features[:, :dataset.past_targets_features_dim]
+        )
+
         # padded = False
         # if len(timestamps_batch) != dataset.eval_batch_size:
         #     padding_size = dataset.eval_batch_size - len(timestamps_batch)
@@ -379,6 +383,11 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
         for step in range(starting_step_idx + 1, num_steps + 1):
             features, targets, targets_nan_mask = (tensor.to(device) for tensor in next(train_loader_iterator))
+            features[:, :dataset.past_targets_features_dim] = dataset.transform_past_targets_for_features(
+                features[:, :dataset.past_targets_features_dim]
+            )
+            targets = dataset.transform_future_targets_for_loss(targets)
+
             cur_step_loss = compute_loss(model=model, dataset=dataset, features=features, targets=targets,
                                          targets_nan_mask=targets_nan_mask, loss_fn=loss_fn, amp=amp)
             state_handler.loss += cur_step_loss

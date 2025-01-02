@@ -478,11 +478,7 @@ class Dataset:
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
 
-        past_targets = self.targets[past_timestamps]
-        past_targets_orig_shape = past_targets.shape
-        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1))\
-            .reshape(*past_targets_orig_shape)
-        past_targets = past_targets.T
+        past_targets = self.targets[past_timestamps].T
 
         if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps]
@@ -504,11 +500,7 @@ class Dataset:
     def get_timestamp_features_as_sequence_input(self, timestamp):  # TODO features nan mask here
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
 
-        past_targets = self.targets[past_timestamps]
-        past_targets_orig_shape = past_targets.shape
-        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1))\
-            .reshape(*past_targets_orig_shape)
-        past_targets = past_targets.T.unsqueeze(-1)
+        past_targets = self.targets[past_timestamps].T.unsqueeze(-1)
 
         if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].T.unsqueeze(-1)
@@ -533,10 +525,7 @@ class Dataset:
 
     def get_timestamp_targets_for_loss(self, timestamp):
         future_timestamps = timestamp + self.future_timestamp_shifts_for_prediction
-        targets = self.targets[future_timestamps]
-        targets_orig_shape = targets.shape
-        targets = self.targets_for_loss_transform.transform(targets.reshape(-1, 1)).reshape(*targets_orig_shape)
-        targets = targets.T.squeeze(1)
+        targets = self.targets[future_timestamps].T.squeeze(1)
         targets_nan_mask = self.targets_nan_mask[future_timestamps].T.squeeze(1)
 
         return targets, targets_nan_mask
@@ -555,16 +544,11 @@ class Dataset:
         negative_mask = (past_timestamps < 0)
         past_timestamps[negative_mask] = 0
 
-        past_targets = self.targets[past_timestamps]
-        past_targets_orig_shape = past_targets.shape
-        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1))\
-            .reshape(*past_targets_orig_shape)
-
         # The shape of past targets (and later the shape of past_targets_nan_mask) changes from
         # [batch_size, past_targets_features_dim, num_nodes] to
         # [batch_size, num_nodes, past_targets_features_dim] to
         # [num_nodes * batch_size, past_targets_features_dim].
-        past_targets = past_targets.transpose(1, 2).flatten(start_dim=0, end_dim=1)
+        past_targets = self.targets[past_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)
 
         if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps]
@@ -598,17 +582,12 @@ class Dataset:
         # The shape of past_timestamps is [batch_size, seq_len].
         past_timestamps = timestamps_batch[:, None] + self.past_timestamp_shifts_for_features[None, :]
 
-        past_targets = self.targets[past_timestamps]
-        past_targets_orig_shape = past_targets.shape
-        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1))\
-            .reshape(*past_targets_orig_shape)
-
         # The shape of past targets (and later the shape of past_targets_nan_mask) changes from
         # [batch_size, seq_len, num_nodes] to
         # [batch_size, num_nodes, seq_len] to
         # [num_nodes * batch_size, seq_len] to
         # [num_nodes * batch_size, seq_len, 1].
-        past_targets = past_targets.transpose(1, 2).flatten(start_dim=0, end_dim=1).unsqueeze(-1)
+        past_targets = self.targets[past_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1).unsqueeze(-1)
 
         if self.add_nan_indicators_to_targets_for_features:
             past_targets_nan_mask = self.targets_nan_mask[past_timestamps].transpose(1, 2)\
@@ -648,16 +627,13 @@ class Dataset:
     def get_timestamps_batch_targets_for_loss(self, timestamps_batch):
         # The shape of future_timestamps is [batch_size, targets_dim].
         future_timestamps = timestamps_batch[:, None] + self.future_timestamp_shifts_for_prediction[None, :]
-        targets = self.targets[future_timestamps]
-        targets_orig_shape = targets.shape
-        targets = self.targets_for_loss_transform.transform(targets.reshape(-1, 1)).reshape(*targets_orig_shape)
 
         # The shape of targets and targets_nan_mask changes from
         # [batch_size, targets_dim, num_nodes] to
         # [batch_size, num_nodes, targets_dim] to
         # [num_nodes * batch_size, targets_dim],
         # and if targets_dim is 1, then the last dimension is squeezed.
-        targets = targets.transpose(1, 2).flatten(start_dim=0, end_dim=1).squeeze(1)
+        targets = self.targets[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1).squeeze(1)
         targets_nan_mask = self.targets_nan_mask[future_timestamps].transpose(1, 2).flatten(start_dim=0, end_dim=1)\
             .squeeze(1)
 
@@ -668,6 +644,18 @@ class Dataset:
         targets, targets_nan_mask = self.get_timestamps_batch_targets_for_loss(timestamps_batch)
 
         return features, targets, targets_nan_mask
+
+    def transform_past_targets_for_features(self, targets):
+        targets_orig_shape = targets.shape
+        targets = self.targets_for_features_transform.transform(targets.reshape(-1, 1)).reshape(*targets_orig_shape)
+
+        return targets
+
+    def transform_future_targets_for_loss(self, targets):
+        targets_orig_shape = targets.shape
+        targets = self.targets_for_loss_transform.transform(targets.reshape(-1, 1)).reshape(*targets_orig_shape)
+
+        return targets
 
     def transform_preds_for_metrics(self, preds):
         preds_orig_shape = preds.shape
