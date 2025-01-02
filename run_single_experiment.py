@@ -242,6 +242,7 @@ def optimizer_step(loss, optimizer, gradscaler):
 
 @torch.no_grad()
 def evaluate_on_val_or_test(model, dataset, split, loader, loss_fn, metric, amp=True):
+    batch_num_nodes = dataset.num_nodes * dataset.eval_batch_size
     preds = []
     for cur_features in loader:
         cur_features = cur_features.to(dataset.device)
@@ -249,19 +250,21 @@ def evaluate_on_val_or_test(model, dataset, split, loader, loss_fn, metric, amp=
             cur_features[:, :dataset.past_targets_features_dim]
         )
 
-        # padded = False
-        # if len(timestamps_batch) != dataset.eval_batch_size:
-        #     padding_size = dataset.eval_batch_size - len(timestamps_batch)
-        #     padding = torch.zeros(padding_size, dtype=torch.int32)
-        #     timestamps_batch = torch.cat([timestamps_batch, padding], axis=0)
-        #     padded = True
+        padded = False
+        if cur_features.shape[0] != batch_num_nodes:
+            padding_num_nodes = batch_num_nodes - cur_features.shape[0]
+            padding = torch.zeros(padding_num_nodes, dataset.features_dim, dtype=torch.float32, device=dataset.device)
+            cur_features = torch.cat([cur_features, padding], axis=0)
+            padded = True
 
         with torch.autocast(enabled=amp, device_type=cur_features.device.type):
             cur_preds = model(graph=dataset.eval_batched_graph, x=cur_features)
 
         cur_preds = cur_preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
-        # if padded:
-        #     cur_preds = cur_preds[:-padding_size]
+
+        if padded:
+            padding_num_timestamps = padding_num_nodes // dataset.num_nodes
+            cur_preds = cur_preds[:-padding_num_timestamps]
 
         preds.append(cur_preds.cpu())
 
