@@ -197,18 +197,18 @@ class Dataset:
 
         _pool_arguments = [
             [
-                'temporal', None if skip_temporal_features else temporal_features, temporal_feature_names,
+                'temporal', None if skip_temporal_features else temporal_features, temporal_features.shape[2], temporal_feature_names,
                 numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
                 numerical_features_nan_imputation_strategy, all_train_timestamps, skip_temporal_features
             ],
             [
-                'spatial', None if skip_spatial_features else spatial_features, spatial_feature_names,
+                'spatial', None if skip_spatial_features else spatial_features, spatial_features.shape[2], spatial_feature_names,
                 numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
                 numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatial_features
             ],
             [
                 'spatiotemporal', None if skip_spatotemporal_features else spatiotemporal_features,
-                spatiotemporal_feature_names, numerical_feature_names_set, categorical_feature_names_set,
+                spatiotemporal_features.shape[2], spatiotemporal_feature_names, numerical_feature_names_set, categorical_feature_names_set,
                 numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps,
                 skip_spatotemporal_features
             ]
@@ -712,6 +712,7 @@ class Dataset:
             self,
             features_type: tp.Literal['temporal', 'spatial', 'spatiotemporal'],
             features: np.ndarray | None,
+            features_dim_size: int,  # NOTE we need this argument as we can't access the shape of Nonetype if features is None
             feature_names: tp.Sequence[str],
             numerical_features_names_set: set[str],
             categorical_features_names_set: set[str],
@@ -723,29 +724,28 @@ class Dataset:
             all_train_timestamps: tp.Sequence[int],
             skip: bool = False
     ):
-
-        numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
-        categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
+        numerical_features_mask = np.zeros(features_dim_size, dtype=bool)
+        categorical_features_mask = np.zeros(features_dim_size, dtype=bool)
         for i, feature_name in enumerate(feature_names):
             if feature_name in numerical_features_names_set:
                 numerical_features_mask[i] = True
             elif feature_name in categorical_features_names_set:
                 categorical_features_mask[i] = True
+        print(f"{features_type=} {features.shape=} {features_dim_size=} {feature_names=} {categorical_features_mask=} {numerical_features_mask=}")
+
 
         if skip:
             print(f'Skipped preprocessing {features_type} features.')
 
-            return features, feature_names, numerical_features_mask  # TODO decide what to return.
+            return features, feature_names, numerical_features_mask
 
         # Transform numerical features and impute NaNs in numerical features.
         if numerical_features_mask.any():
             numerical_features = features[:, :, numerical_features_mask]
-
             # Transform numerical features.
             numerical_features_transform = self.transforms[numerical_features_transform]()
-            numerical_features_transform.fit(
-                numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
-            )
+            numerical_features_subset_to_fit_transform = numerical_features.reshape(-1, numerical_features.shape[2]) if features_type == "spatial" else numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
+            numerical_features_transform.fit(numerical_features_subset_to_fit_transform)
             numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
                 numerical_features.reshape(-1, numerical_features.shape[2])
@@ -834,7 +834,6 @@ class TimestampsSampler:
 
         self._generator = torch.Generator().manual_seed(seed)
         self._indices_to_sample: list[int] = self._get_sampler(size=size, batch_size=batch_size, shuffle=shuffle, number_of_batches_to_skip=number_of_batches_to_skip)
-        
 
     def _get_sampler(self, size: int, batch_size: int, shuffle: bool, number_of_batches_to_skip: int) -> list[int]:
         elements_to_skip = batch_size * number_of_batches_to_skip
