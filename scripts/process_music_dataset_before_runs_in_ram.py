@@ -20,8 +20,6 @@ def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_root", type=Path, default=Path("/mnt/ar_hdd/fvelikon/graph-time-series/datasets/music"), help="Root for raw loaded data")
     parser.add_argument("--output_root", type=Path, required=True, help="Root for processed data")
-    parser.add_argument("--processes", type=int, required=False, default=1, help="Number of processes")
-
 
     return parser
 
@@ -43,8 +41,6 @@ def calculate_features_statistics_slice(raw_features: np.ndarray):
     print(f"{stds_fetures_wise.shape=}")
     print(f"{maxes_features.shape=}")
     print(f"{mins_features.shape=}")
-
-
 
     print(f"{means_features_wise=}")
     print(f"{stds_fetures_wise=}")
@@ -82,18 +78,23 @@ def main():
     output_root_path: Path = args.output_root
     output_root_path.mkdir(parents=True, exist_ok=True)
 
+    new_memmap_shape = list(memmap_shape)
+    new_memmap_shape[2] += 1
+    new_memmap_shape = tuple(new_memmap_shape)
     std_scaler_memmap_path = str(output_root_path / "standard_scaled.memmap")
-    std_scaler_memmap = np.memmap(std_scaler_memmap_path, dtype='float32', mode='r+', shape=memmap_shape)
+    std_scaler_memmap = np.memmap(std_scaler_memmap_path, dtype='float32', mode='r+', shape=new_memmap_shape)
     # std_scaler_memmap[:, :, :] = raw_features
     # std_scaler_memmap.flush()
     gc.collect()
 
     min_max_scaler_memmap_path = str(output_root_path / "min_max_scaled.memmap")
-    min_max_scaler_memmap = np.memmap(min_max_scaler_memmap_path, dtype='float32', mode='r+', shape=memmap_shape)
+    min_max_scaler_memmap = np.memmap(min_max_scaler_memmap_path, dtype='float32', mode='r+', shape=new_memmap_shape)
     # min_max_scaler_memmap[:, :, :] = raw_features
     # min_max_scaler_memmap.flush()
     gc.collect()
 
+    std_scaler_memmap[:, :, :-1] = raw_features
+    min_max_scaler_memmap[:, :, :-1] = raw_features
 
 
     (empty_features_mask,
@@ -105,15 +106,16 @@ def main():
     del raw_features
     gc.collect()
 
-
-    std_scaler_memmap[:, :, :] -= means_features_wise
-    std_scaler_memmap[:, :, :] /= (stds_fetures_wise + 1e-6)
+    std_scaler_memmap[:, :, :-1] -= means_features_wise
+    std_scaler_memmap[:, :, :-1] /= (stds_fetures_wise + 1e-6)
+    std_scaler_memmap[:, :, -1] = empty_features_mask.astype("float32")
     std_scaler_memmap.flush()
     del std_scaler_memmap
     gc.collect()
 
-    min_max_scaler_memmap[:, :, :] -= mins_features
-    min_max_scaler_memmap[:, :, :] /= (maxes_features - mins_features)
+    min_max_scaler_memmap[:, :, :-1] -= mins_features
+    min_max_scaler_memmap[:, :, :-1] /= (maxes_features - mins_features)
+    min_max_scaler_memmap[:, :, -1] = empty_features_mask.astype("float32")
     min_max_scaler_memmap.flush()
     del min_max_scaler_memmap
     gc.collect()
