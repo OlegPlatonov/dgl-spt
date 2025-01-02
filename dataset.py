@@ -224,7 +224,10 @@ class Dataset:
         spatiotemporal_features = features_groups[2] if features_groups[2] is not None else spatiotemporal_features
 
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
-        numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
+
+        numerical_features_mask = np.concatenate(
+            list(numerical_features_masks_by_group) + [np.zeros(deepwalk_embeddings.shape[2], dtype=bool)], axis=0
+        )
 
         # TODO add mask signalling that all features are empty for current timestamp for spatiotemporal features.
 
