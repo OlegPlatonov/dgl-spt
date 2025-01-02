@@ -7,7 +7,7 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import TensorDataset, DataLoader
 
-from dataset import Dataset
+from dataset import Dataset, TrainDatasetSubsetWrapper, ValDatasetSubsetWrapper, TestDatasetSubsetWrapper
 from models import ModelRegistry
 from utils import Logger, get_parameter_groups, DummyHandler, NirvanaStateHandler, StateHandler
 
@@ -208,6 +208,7 @@ def get_args(add_name: bool = True):
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--no_amp', default=False, action='store_true')
     parser.add_argument('--no_gradscaler', default=False, action='store_true')
+    parser.add_argument('--num_dataloader_workers', type=int, default=8)
     parser.add_argument('--num_threads', type=int, default=32)
     parser.add_argument('--nirvana', default=False, action='store_true',
                         help='Indicates that experiment is being run in Nirvana.')
@@ -219,9 +220,7 @@ def get_args(add_name: bool = True):
     return args, parser
 
 
-def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
-    features, targets, targets_nan_mask = dataset.get_timestamps_batch_features_and_targets_for_loss(timestamps_batch)
-
+def compute_loss(model, dataset: Dataset, features, targets, targets_nan_mask, loss_fn, amp=True):
     with torch.autocast(enabled=amp, device_type=features.device.type):
         preds = model(graph=dataset.train_batched_graph, x=features)
         loss = loss_fn(input=preds, target=targets, reduction='none')
@@ -242,23 +241,23 @@ def optimizer_step(loss, optimizer, gradscaler):
 
 
 @torch.no_grad()
-def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=True):
+def evaluate_on_val_or_test(model, dataset, split, loader, loss_fn, metric, amp=True):
     preds = []
-    for timestamps_batch in timestamps_loader:
-        padded = False
-        if len(timestamps_batch) != dataset.eval_batch_size:
-            padding_size = dataset.eval_batch_size - len(timestamps_batch)
-            padding = torch.zeros(padding_size, dtype=torch.int32)
-            timestamps_batch = torch.cat([timestamps_batch, padding], axis=0)
-            padded = True
+    for cur_features in loader:
+        cur_features = cur_features.to(dataset.device)
+        # padded = False
+        # if len(timestamps_batch) != dataset.eval_batch_size:
+        #     padding_size = dataset.eval_batch_size - len(timestamps_batch)
+        #     padding = torch.zeros(padding_size, dtype=torch.int32)
+        #     timestamps_batch = torch.cat([timestamps_batch, padding], axis=0)
+        #     padded = True
 
-        features = dataset.get_timestamps_batch_features(timestamps_batch)
-        with torch.autocast(enabled=amp, device_type=features.device.type):
-            cur_preds = model(graph=dataset.eval_batched_graph, x=features)
+        with torch.autocast(enabled=amp, device_type=cur_features.device.type):
+            cur_preds = model(graph=dataset.eval_batched_graph, x=cur_features)
 
         cur_preds = cur_preds.reshape(dataset.eval_batch_size, dataset.num_nodes, dataset.targets_dim).squeeze(2)
-        if padded:
-            cur_preds = cur_preds[:-padding_size]
+        # if padded:
+        #     cur_preds = cur_preds[:-padding_size]
 
         preds.append(cur_preds.cpu())
 
@@ -313,26 +312,23 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
 
 
 @torch.no_grad()
-def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=True,
-             do_not_evaluate_on_test=False):
+def evaluate(model, dataset, val_loader, test_loader, loss_fn, metric, amp=True, do_not_evaluate_on_test=False):
     metrics = {}
-    val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
-                                         timestamps_loader=val_timestamps_loader, loss_fn=loss_fn,
-                                         metric=metric, amp=amp)
+    val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val', loader=val_loader,
+                                         loss_fn=loss_fn, metric=metric, amp=amp)
     metrics[f'val {metric}'] = val_metric
 
     if not do_not_evaluate_on_test:
-        test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
-                                              timestamps_loader=test_timestamps_loader, loss_fn=loss_fn,
-                                              metric=metric, amp=amp)
+        test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test', loader=test_loader,
+                                              loss_fn=loss_fn, metric=metric, amp=amp)
         metrics[f'test {metric}'] = test_metric
 
     return metrics
 
 
 def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr,
-          weight_decay, run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None,
-          do_not_evaluate_on_test=False, nirvana=False):
+          weight_decay, run_id, device, num_dataloader_workers, state_handler: StateHandler, amp=True,
+          use_gradscaler=True, seed=None, do_not_evaluate_on_test=False, nirvana=False):
 
     if seed is not None:
         torch.manual_seed(seed)
@@ -341,14 +337,17 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
             'You must specify seed when training in Nirvana to ensure the same behaviour after every rescheduling.'
         )
 
-    train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
-                                         drop_last=True)
-    val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
-                                       drop_last=False)
-    test_timestamps_loader = DataLoader(dataset.test_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
-                                        drop_last=False)
+    train_loader = DataLoader(TrainDatasetSubsetWrapper(dataset), batch_size=dataset.train_batch_size,
+                              collate_fn=lambda x: x, shuffle=True, drop_last=True, num_workers=num_dataloader_workers,
+                              pin_memory=True, pin_memory_device=device)
+    val_loader = DataLoader(ValDatasetSubsetWrapper(dataset), batch_size=dataset.eval_batch_size,
+                            collate_fn=lambda x: x, shuffle=False, drop_last=False, num_workers=num_dataloader_workers,
+                            pin_memory=True, pin_memory_device=device)
+    test_loader = DataLoader(TestDatasetSubsetWrapper(dataset), batch_size=dataset.eval_batch_size,
+                             collate_fn=lambda x: x, shuffle=False, drop_last=False, num_workers=num_dataloader_workers,
+                             pin_memory=True, pin_memory_device=device)
 
-    num_steps = len(train_timestamps_loader) * num_epochs
+    num_steps = len(train_loader) * num_epochs
 
     model.to(device)
 
@@ -365,7 +364,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     steps_till_optimizer_step = num_accumulation_steps
     optimizer_steps_till_eval = eval_every
     metrics = {}
-    train_timestamps_loader_iterator = iter(train_timestamps_loader)
+    train_loader_iterator = iter(train_loader)
     model.train()
     starting_step_idx = state_handler.steps_after_run_start
     with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
@@ -373,15 +372,15 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
         if starting_step_idx > 0:
             t1 = perf_counter()
             print(f'Skipping {starting_step_idx} batches after rescheduling.')
-            for step_to_skip in range(starting_step_idx % len(train_timestamps_loader_iterator)):
-                next(train_timestamps_loader_iterator)
+            for step_to_skip in range(starting_step_idx % len(train_loader)):
+                next(train_loader_iterator)
             t2 = perf_counter()
             print(f'Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds.')
 
         for step in range(starting_step_idx + 1, num_steps + 1):
-            cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
-            cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
-                                         loss_fn=loss_fn, amp=amp)
+            features, targets, targets_nan_mask = (tensor.to(device) for tensor in next(train_loader_iterator))
+            cur_step_loss = compute_loss(model=model, dataset=dataset, features=features, targets=targets,
+                                         targets_nan_mask=targets_nan_mask, loss_fn=loss_fn, amp=amp)
             state_handler.loss += cur_step_loss
 
             steps_till_optimizer_step -= 1
@@ -397,13 +396,13 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
             if (
                 optimizer_steps_till_eval == 0 or
-                train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)
+                train_loader_iterator._num_yielded == len(train_loader)
             ):
                 progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
                 model.eval()
-                metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
-                                   test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
-                                   amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
+                metrics = evaluate(model=model, dataset=dataset, val_loader=val_loader, test_loader=test_loader,
+                                   loss_fn=loss_fn, metric=metric, amp=amp,
+                                   do_not_evaluate_on_test=do_not_evaluate_on_test)
                 logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
                 model.train()
 
@@ -420,8 +419,8 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
             state_handler.step()
 
-            if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
-                train_timestamps_loader_iterator = iter(train_timestamps_loader)
+            if train_loader_iterator._num_yielded == len(train_loader):
+                train_loader_iterator = iter(train_loader)
                 epoch += 1
                 state_handler.finish_epoch()
                 # check that logger, model and optimizer are shared also for state wrapper
@@ -537,8 +536,9 @@ def main():
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
-              device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
-              do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana, state_handler=state_handler)
+              device=args.device, num_dataloader_workers=args.num_dataloader_workers, amp=not args.no_amp,
+              use_gradscaler=not args.no_gradscaler, seed=run, do_not_evaluate_on_test=args.do_not_evaluate_on_test,
+              nirvana=args.nirvana, state_handler=state_handler)
 
         state_handler.load_checkpoint()
 
