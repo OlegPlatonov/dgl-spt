@@ -446,8 +446,8 @@ class Dataset:
             self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.repeat(1, eval_batch_size, 1).to(device)
 
         # Might be used for applying numerical feature embeddings.
-        self.numerical_features_mask = torch.from_numpy(numerical_features_mask)
-        self.past_targets_mask = torch.from_numpy(past_targets_mask)
+        self.numerical_features_mask = torch.from_numpy(numerical_features_mask).to(device)
+        self.past_targets_mask = torch.from_numpy(past_targets_mask).to(device)
 
         if initialize_learnable_node_embeddings_with_deepwalk:
             self.deepwalk_embeddings_for_initializing_learnable_embeddings = torch.from_numpy(
