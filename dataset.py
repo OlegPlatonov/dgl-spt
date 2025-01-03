@@ -644,13 +644,12 @@ class Dataset:
                 numerical_features_mask[i] = True
             elif feature_name in categorical_features_names_set:
                 categorical_features_mask[i] = True
-        print(f"{features_type=} {features.shape=} {features_dim_size=} {feature_names=} {categorical_features_mask=} {numerical_features_mask=}")
-
 
         if skip:
             print(f'Skipped preprocessing {features_type} features.')
 
             return features, feature_names, numerical_features_mask
+        print(f"{features_type=} {features.shape=} {features_dim_size=} {feature_names=} {categorical_features_mask=} {numerical_features_mask=}")
 
         # Transform numerical features and impute NaNs in numerical features.
         if numerical_features_mask.any():
