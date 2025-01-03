@@ -40,14 +40,14 @@ def copy_out_to_snapshot(out, dump=True):
 
         # Delete previous state to avoid memory explosion
         os.system(f"rm {snapshot_path}/state")
-        copy_tree(out, snapshot_path)
+        copy_tree(out, snapshot_path, update=1)
 
         if dump:
             # Make it visible in the Python DL output
             nirvana_dl.snapshot.dump_snapshot(snapshot_path)
-    if (x:=os.environ.get("SNAPSHOT_PATH")):
-        print(f"Copy {out} to the snapshot path: {x}")
-        copy_tree(out, x)
+    # if (x:=os.environ.get("SNAPSHOT_PATH")):
+    #     print(f"Copy {out} to the snapshot path: {x}")
+    #     copy_tree(out, x)
 
 
 def write_output_to_YT(
@@ -112,7 +112,3 @@ def read_output_from_yt(
             print(f"Current progress {i}/{ds_length} or {i / ds_length * 100:.2f}%")
         rows.append(row)
     return rows
-
-
-def read_table_from_yt(path):
-    pass  # TODO

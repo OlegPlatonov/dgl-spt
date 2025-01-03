@@ -305,20 +305,13 @@ class NirvanaStateHandler(StateHandler):
     def logger_state(self) -> dict[str, tp.Any]:
         return self.logger.get_parameters_for_checkpoint()
 
-        # self.logger.val_metrics = val_metrics
-        # self.logger.test_metrics = test_metrics
-        # self.logger.cur_run = cur_run
-        # self.logger.best_steps = best_steps
-        # self.logger.best_epochs = best_epochs
-        # self.logger.save_dir = save_dir
-
     def load_checkpoint(self, initial_loading: bool = False):
         if initial_loading:
             copy_snapshot_to_out(self.checkpoint_dir)
 
         if self.checkpoint_file_path.exists():
             # if path exists, thus logger state always nonempty
-            state_dict: dict[str, TorchStateDict | dict[str, tp.Any] | int | float] = torch.load(self.checkpoint_file_path, weights_only=True)
+            state_dict: dict[str, TorchStateDict | dict[str, tp.Any] | int | float | torch.Tensor] = torch.load(self.checkpoint_file_path, weights_only=True)
             self._logger_state = state_dict["logger_state"]
             self._model_state = state_dict["model_state"]
             self._optimizer_state = state_dict["optimizer_state"]
