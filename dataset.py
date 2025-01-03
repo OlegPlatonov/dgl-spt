@@ -41,14 +41,10 @@ class Dataset:
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
                  pyg=False):
-
         DATA_ROOT = 'data'
         # torch.set_default_device(device)
 
         # NOTE this code can crash if the dataset doesn't have specified format
-        if os.path.exists(name_or_path):
-            name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
-            path = name_or_path
         if name_or_path.endswith('.npz'):
             name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
             path = name_or_path
@@ -89,6 +85,66 @@ class Dataset:
         spatiotemporal_features, spatiotemporal_feature_names, skip_spatotemporal_features = self._prepare_spatiotemporal_features_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, do_not_use_spatiotemporal_features=do_not_use_spatiotemporal_features, num_nodes=num_nodes,
                                                                                                                                                         num_timestamps=num_timestamps, spatiotemporal_features_local_processed_memmap_name=spatiotemporal_features_local_processed_memmap_name, data_root=DATA_ROOT,
                                                                                                                                                         nirvana=nirvana)
+
+        # Prepare the transform that will be applied to targets from future timestamps which will be used for loss
+        # computation during training (note that during evaluation the predictions will be passed through the reverse
+        # transform and the metrics will be computed using the original untransformed targets).
+        targets_for_loss_transform = self.transforms[targets_for_loss_transform]()
+        targets_for_loss_transform.fit(targets[all_train_timestamps].reshape(-1, 1))
+
+        # Prepare the transform that will be applied to targets from the past timestamps and the current timestamp and
+        # provided as features to the model.
+        targets_for_features_transform = self.transforms[targets_for_features_transform]()
+        targets_for_features_transform.fit(targets[all_train_timestamps].reshape(-1, 1))
+
+        # Impute NaNs in targets.
+        if targets_for_features_nan_imputation_strategy == 'prev':
+            if targets_nan_mask.all(axis=0).any():
+                # Before imputing any other targets, let's handle the nodes in the dataset for which no targets are
+                # available at all. We may not want to remove such nodes because their position in the graph and their
+                # features may provide useful information. But we need to impute their targets somehow and we cannot do
+                # it with previous target values because there are no such values for these nodes. We will impute these
+                # targets in one of two ways.
+                if not targets_nan_mask.all(axis=1).any():
+                    # If there are no timestamps for which all targets are NaN, then we will impute targets of nodes
+                    # with no known targets at each timestamp with the mean of all known targets at this timestamp.
+                    targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets, axis=1, keepdims=True)
+                else:
+                    # If there are timestamps for which all targets are NaN, then we will impute targets of nodes
+                    # with no known targets at each timestamp with the mean of all known targets of all nodes at all
+                    # train timestamps.
+                    targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets[all_train_timestamps])
+
+            if np.isnan(targets)[all_train_timestamps].all(axis=0).any():
+                raise RuntimeError(
+                    'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
+                    'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
+                    'nodes) or set imputation_startegy_for_nan_targets argument to "zero".'
+                )
+
+            # Now, we will impute NaN targets with the latest known target value by running forward fill.
+            targets_df = pd.DataFrame(targets, copy=False)
+            targets_df.ffill(axis=0, inplace=True)
+
+            # If some nodes have NaN targets starting from the first train timestamp, these NaN values are still left
+            # not imputed after forward fill. We will impute them with the first known target value by running backward
+            # fill. Note that we have already verified that there are at least some train target values that are not
+            # NaN for each node, and thus it is guaranteed that this will not lead to future targets leakage from val
+            # and test timestamps.
+            if np.isnan(targets).any():
+                targets_df.bfill(axis=0, inplace=True)
+
+            # targets numpy array has been modified by modifying targets_df pandas dataframe which shares the data
+            # with it. We do not need the targets_df pandas dataframe anymore.
+            del targets_df
+
+        elif targets_for_features_nan_imputation_strategy == 'zero':
+            targets[targets_nan_mask] = 0
+
+        else:
+            raise ValueError(f'Unsupported value for targets_for_features_nan_imputation_strategy: '
+                             f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
+
         if use_deepwalk_node_embeddings or initialize_learnable_node_embeddings_with_deepwalk:
             if 'deepwalk_node_embeddings' not in data.keys():
                 raise ValueError('DeepWalk node embeddings are not provided for this dataset.')
@@ -108,20 +164,19 @@ class Dataset:
 
         _pool_arguments = [
             [
-                'temporal', None if skip_temporal_features else temporal_features, temporal_features.shape[2], temporal_feature_names,
-                numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
-                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_temporal_features, state_handler.checkpoint_dir, nirvana
+                'temporal', temporal_features, temporal_feature_names, numerical_feature_names_set,
+                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                all_train_timestamps, skip_temporal_features, state_handler.checkpoint_dir, nirvana
             ],
             [
-                'spatial', None if skip_spatial_features else spatial_features, spatial_features.shape[2], spatial_feature_names,
-                numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
-                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatial_features, state_handler.checkpoint_dir, nirvana
+                'spatial', spatial_features, spatial_feature_names, numerical_feature_names_set,
+                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                all_train_timestamps, skip_spatial_features, state_handler.checkpoint_dir, nirvana
             ],
             [
-                'spatiotemporal', None if skip_spatotemporal_features else spatiotemporal_features,
-                spatiotemporal_features.shape[2], spatiotemporal_feature_names, numerical_feature_names_set, categorical_feature_names_set,
-                numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps,
-                skip_spatotemporal_features, state_handler.checkpoint_dir, nirvana
+                'spatiotemporal', spatiotemporal_features, spatiotemporal_feature_names, numerical_feature_names_set,
+                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                all_train_timestamps, skip_spatotemporal_features, state_handler.checkpoint_dir, nirvana
             ]
         ]
         
@@ -129,13 +184,13 @@ class Dataset:
             features_preprocessing_results = preprocessing_pool.starmap(self._transform_feature_group, _pool_arguments)
 
         features_groups, feature_names_groups, numerical_features_masks_by_group = zip(*features_preprocessing_results)
-
-        temporal_features = features_groups[0] if features_groups[0] is not None else temporal_features
-        spatial_features = features_groups[1] if features_groups[1] is not None else spatial_features
-        spatiotemporal_features = features_groups[2] if features_groups[2] is not None else spatiotemporal_features
-
+        temporal_features, spatial_features, spatiotemporal_features = features_groups
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
+
+        numerical_features_mask = np.concatenate(
+            [numerical_features_mask, np.zeros(deepwalk_embeddings.shape[2], dtype=bool)], axis=0
+        )
 
         # PREPARE GRAPH
 
@@ -245,7 +300,7 @@ class Dataset:
         past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
-                        deepwalk_embeddings.shape[2])  # TODO add targets Nan mask
+                        deepwalk_embeddings.shape[2])
 
         past_targets_mask = np.zeros(features_dim, dtype=bool)
         past_targets_mask[:past_targets_features_dim] = True
@@ -342,18 +397,20 @@ class Dataset:
         self.spatiotemporal_feature_names = spatiotemporal_feature_names
         self.deepwalk_embeddings = get_tensor_or_wrap_memmap(deepwalk_embeddings)
 
-        self.spatial_features_batched_train = self.spatial_features.repeat(1, train_batch_size, 1).to(device)
-        self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.repeat(1, train_batch_size, 1).to(device)
+        # Spatial node features and node embeddings are the same for all timestamps, so we load them on the appropriate
+        # device and batch in advance to avoid doing it each training step.
+        self.spatial_features_batched_train = self.spatial_features.to(device).repeat(1, train_batch_size, 1)
+        self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.to(device).repeat(1, train_batch_size, 1)
         if eval_batch_size is None or eval_batch_size == train_batch_size:
             self.spatial_features_batched_eval = self.spatial_features_batched_train
             self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings_batched_train
         else:
-            self.spatial_features_batched_eval = self.spatial_features.repeat(1, eval_batch_size, 1).to(device)
-            self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.repeat(1, eval_batch_size, 1).to(device)
+            self.spatial_features_batched_eval = self.spatial_features.to(device).repeat(1, eval_batch_size, 1)
+            self.deepwalk_embeddings_batched_eval = self.deepwalk_embeddings.to(device).repeat(1, eval_batch_size, 1)
 
         # Might be used for applying numerical feature embeddings.
-        self.numerical_features_mask = torch.from_numpy(numerical_features_mask)
-        self.past_targets_mask = torch.from_numpy(past_targets_mask)
+        self.numerical_features_mask = torch.from_numpy(numerical_features_mask).to(device)
+        self.past_targets_mask = torch.from_numpy(past_targets_mask).to(device)
 
         if initialize_learnable_node_embeddings_with_deepwalk:
             self.deepwalk_embeddings_for_initializing_learnable_embeddings = torch.from_numpy(
@@ -416,7 +473,7 @@ class Dataset:
 
         past_targets = self.targets[past_timestamps].to(self.device)
         past_targets_orig_shape = past_targets.shape
-        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1)) \
+        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1))\
             .reshape(*past_targets_orig_shape)
         past_targets = past_targets.T.unsqueeze(-1)
 
@@ -623,8 +680,7 @@ class Dataset:
     def _transform_feature_group(
             self,
             features_type: tp.Literal['temporal', 'spatial', 'spatiotemporal'],
-            features: np.ndarray | None,
-            features_dim_size: int,  # NOTE we need this argument as we can't access the shape of Nonetype if features is None
+            features: np.ndarray,
             feature_names: tp.Sequence[str],
             numerical_features_names_set: set[str],
             categorical_features_names_set: set[str],
@@ -638,8 +694,8 @@ class Dataset:
             checkpoint_dir: Path = Path("NULL"),
             nirvana: bool = False,
     ):
-        numerical_features_mask = np.zeros(features_dim_size, dtype=bool)
-        categorical_features_mask = np.zeros(features_dim_size, dtype=bool)
+        numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
+        categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
         for i, feature_name in enumerate(feature_names):
             if feature_name in numerical_features_names_set:
                 numerical_features_mask[i] = True
@@ -648,17 +704,22 @@ class Dataset:
 
         if skip:
             print(f'Skipped preprocessing {features_type} features.')
-
             return features, feature_names, numerical_features_mask
         print(f"{features_type=} {features.shape=} {features_dim_size=} {feature_names=} {categorical_features_mask=} {numerical_features_mask=}")
+
+        print(
+            f'{features_type=} {features.shape=} {feature_names=} '
+            f'{numerical_features_mask=} {categorical_features_mask=} '
+        )
 
         # Transform numerical features and impute NaNs in numerical features.
         if numerical_features_mask.any():
             numerical_features = features[:, :, numerical_features_mask]
+
             # Transform numerical features.
             numerical_features_transform = self.transforms[numerical_features_transform]()
-            numerical_features_subset_to_fit_transform = numerical_features.reshape(-1, numerical_features.shape[2]) if features_type == "spatial" else numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
-            numerical_features_transform.fit(numerical_features_subset_to_fit_transform)
+            train_idx = all_train_timestamps if features_type != 'spatial' else 0
+            numerical_features_transform.fit(numerical_features[train_idx].reshape(-1, numerical_features.shape[2]))
             numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
                 numerical_features.reshape(-1, numerical_features.shape[2])
