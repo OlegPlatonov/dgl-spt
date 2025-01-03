@@ -14,6 +14,7 @@ from sklearn.impute import SimpleImputer
 
 from data_transforms import IdentityTransform, StandardScaler, MinMaxScaler, RobustScaler, QuantileTransform
 from utils import NirvanaNpzDataWrapper, StateHandler, get_tensor_or_wrap_memmap, read_memmap
+from nirvana_utils import copy_out_to_snapshot
 
 
 class Dataset:
@@ -380,7 +381,7 @@ class Dataset:
         self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
 
         self.eval_max_num_timestamps_per_step = eval_max_num_predictions_per_step // self.targets_dim // num_nodes
-        state_handler.save_checkpoint()  # dump all prepared features
+        copy_out_to_snapshot(state_handler.checkpoint_dir, dump=True) # dump all prepared features, transforms and targets
 
     def get_timestamp_features_as_single_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
