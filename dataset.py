@@ -44,9 +44,6 @@ class Dataset:
         # torch.set_default_device(device)
 
         # NOTE this code can crash if the dataset doesn't have specified format
-        if os.path.exists(name_or_path):
-            name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
-            path = name_or_path
         if name_or_path.endswith('.npz'):
             name = os.path.splitext(os.path.basename(name_or_path))[0].replace('_', '-')
             path = name_or_path
