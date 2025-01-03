@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import joblib
 import dgl
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
@@ -75,17 +76,18 @@ class Dataset:
         # PREPARE TARGETS
         targets, targets_nan_mask = self._prepare_targets_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, targets_for_loss_transform=targets_for_loss_transform,
                                                              all_train_timestamps=all_train_timestamps, targets_for_features_transform=targets_for_features_transform,
-                                                             targets_for_features_nan_imputation_strategy=targets_for_features_nan_imputation_strategy)
+                                                             targets_for_features_nan_imputation_strategy=targets_for_features_nan_imputation_strategy, nirvana=nirvana)
 
         num_timestamps = data['num_timestamps'].item() if 'num_timestamps' in data else targets.shape[0]
         num_nodes = data['num_nodes'].item() if 'num_nodes' in data else targets.shape[1]
 
 
         # PREPARE FEATURES
-        temporal_features, temporal_feature_names, skip_temporal_features = self._prepare_temporal_features_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, do_not_use_temporal_features=do_not_use_temporal_features, num_timestamps=num_timestamps)
-        spatial_features, spatial_feature_names, skip_spatial_features = self._prepare_spatial_features_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, do_not_use_spatial_features=do_not_use_spatial_features, num_nodes=num_nodes)
+        temporal_features, temporal_feature_names, skip_temporal_features = self._prepare_temporal_features_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, do_not_use_temporal_features=do_not_use_temporal_features, num_timestamps=num_timestamps, nirvana=nirvana)
+        spatial_features, spatial_feature_names, skip_spatial_features = self._prepare_spatial_features_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, do_not_use_spatial_features=do_not_use_spatial_features, num_nodes=num_nodes, nirvana=nirvana)
         spatiotemporal_features, spatiotemporal_feature_names, skip_spatotemporal_features = self._prepare_spatiotemporal_features_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, do_not_use_spatiotemporal_features=do_not_use_spatiotemporal_features, num_nodes=num_nodes,
-                                                                                                                                                        num_timestamps=num_timestamps, spatiotemporal_features_local_processed_memmap_name=spatiotemporal_features_local_processed_memmap_name, data_root=DATA_ROOT)
+                                                                                                                                                        num_timestamps=num_timestamps, spatiotemporal_features_local_processed_memmap_name=spatiotemporal_features_local_processed_memmap_name, data_root=DATA_ROOT,
+                                                                                                                                                        nirvana=nirvana)
         if use_deepwalk_node_embeddings or initialize_learnable_node_embeddings_with_deepwalk:
             if 'deepwalk_node_embeddings' not in data.keys():
                 raise ValueError('DeepWalk node embeddings are not provided for this dataset.')
@@ -742,13 +744,18 @@ class Dataset:
         return features, feature_names, numerical_features_mask
 
     def _prepare_targets_or_return_from_state(self, checkpoint_dir: Path, data, targets_for_loss_transform, all_train_timestamps,
-                                                  targets_for_features_transform, targets_for_features_nan_imputation_strategy):
+                                                  targets_for_features_transform, targets_for_features_nan_imputation_strategy,nirvana):
         targets_prepared_file = checkpoint_dir / "__targets_prepared.npy"
         targets_nan_mask_prepared_file = checkpoint_dir / "__targets_prepared.npy"
+        targets_for_loss_transform_prepared_file = checkpoint_dir / "__targets_for_loss_transform_prepared.bin"
+        targets_for_features_transform_prepared_file = checkpoint_dir / "__targets_for_features_transform_prepared.bin"
 
-        if targets_prepared_file.exists() and targets_nan_mask_prepared_file.exists():
+        if targets_prepared_file.exists() and targets_nan_mask_prepared_file.exists() and nirvana:
             targets = np.load(str(targets_prepared_file))
             targets_nan_mask = np.load(str(targets_nan_mask_prepared_file))
+            targets_for_loss_transform = joblib.load(targets_for_loss_transform_prepared_file)
+            targets_for_features_transform = joblib.load(targets_for_features_transform_prepared_file)
+
         else:
             targets = data['targets'].astype(np.float32)
             targets_nan_mask = np.isnan(targets)
@@ -813,12 +820,14 @@ class Dataset:
                                 f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
             np.save(str(targets_prepared_file), targets)
             np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
+            joblib.dump(targets_for_loss_transform, targets_for_loss_transform_prepared_file)
+            joblib.dump(targets_for_features_transform, targets_for_features_transform_prepared_file)
 
-        return targets, targets_nan_mask
+        return targets, targets_nan_mask, targets_for_loss_transform, targets_for_features_transform
 
-    def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int):
+    def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int, nirvana: bool):
         temporal_features_prepared_file = checkpoint_dir / "__temporal_features_prepared.npy"
-        if temporal_features_prepared_file.exists():
+        if temporal_features_prepared_file.exists() and nirvana:
             temporal_features = np.load(str(temporal_features_prepared_file))
             temporal_feature_names = data['temporal_node_feature_names'].tolist()
             skip_temporal_features = True
@@ -834,9 +843,9 @@ class Dataset:
 
         return temporal_features, temporal_feature_names, skip_temporal_features
 
-    def _prepare_spatial_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatial_features: bool, num_nodes: int):
+    def _prepare_spatial_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatial_features: bool, num_nodes: int, nirvana: bool):
         spatial_features_prepared_file = checkpoint_dir / "__spatial_features_prepared.npy"
-        if spatial_features_prepared_file.exists():
+        if spatial_features_prepared_file.exists() and nirvana:
             spatial_features = np.load(str(spatial_features_prepared_file))
             spatial_feature_names = data['spatial_node_feature_names'].tolist()
             skip_spatial_features = True
@@ -852,9 +861,9 @@ class Dataset:
         return spatial_features, spatial_feature_names, skip_spatial_features
 
     def _prepare_spatiotemporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatiotemporal_features: bool, num_timestamps, num_nodes,
-                                                              spatiotemporal_features_local_processed_memmap_name, data_root):
+                                                              spatiotemporal_features_local_processed_memmap_name, data_root, nirvana: bool):
         spatiotemporal_features_prepared_file = checkpoint_dir / "__spatiotemporal_features_prepared.npy"
-        if spatiotemporal_features_prepared_file.exists():
+        if spatiotemporal_features_prepared_file.exists() and nirvana:
             spatiotemporal_features = np.load(str(spatiotemporal_features_prepared_file))
             spatiotemporal_feature_names = data['spatiotemporal_node_feature_names'].tolist()
             skip_spatotemporal_features = True
