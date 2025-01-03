@@ -746,7 +746,7 @@ class Dataset:
     def _prepare_targets_or_return_from_state(self, checkpoint_dir: Path, data, targets_for_loss_transform, all_train_timestamps,
                                                   targets_for_features_transform, targets_for_features_nan_imputation_strategy,nirvana):
         targets_prepared_file = checkpoint_dir / "__targets_prepared.npy"
-        targets_nan_mask_prepared_file = checkpoint_dir / "__targets_prepared.npy"
+        targets_nan_mask_prepared_file = checkpoint_dir / "__targets_nan_mask_prepared.npy"
         targets_for_loss_transform_prepared_file = checkpoint_dir / "__targets_for_loss_transform_prepared.bin"
         targets_for_features_transform_prepared_file = checkpoint_dir / "__targets_for_features_transform_prepared.bin"
 
@@ -822,7 +822,7 @@ class Dataset:
             np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
             joblib.dump(targets_for_loss_transform, targets_for_loss_transform_prepared_file)
             joblib.dump(targets_for_features_transform, targets_for_features_transform_prepared_file)
-
+        breakpoint()
         return targets, targets_nan_mask, targets_for_loss_transform, targets_for_features_transform
 
     def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int, nirvana: bool):
