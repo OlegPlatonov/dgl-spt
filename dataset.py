@@ -168,15 +168,14 @@ class Dataset:
             if spatiotemporal_features_local_processed_memmap_name is None:
                 spatiotemporal_features = data['spatiotemporal_node_features'].astype(np.float32)
                 skip_spatotemporal_features = False
-                
             else:
-                skip_spatotemporal_features = True
                 spatiotemporal_features = read_memmap(
                     filepath=os.path.join(DATA_ROOT, spatiotemporal_features_local_processed_memmap_name),
                     # filepath=os.path.join(DATA_ROOT, spatiotemporal_features_local_processed_memmap_name),
                     shape=(num_timestamps, num_nodes, len(spatiotemporal_feature_names)),
                     # device=torch.device(device),
                 )
+                skip_spatotemporal_features = True
 
         if use_deepwalk_node_embeddings or initialize_learnable_node_embeddings_with_deepwalk:
             if 'deepwalk_node_embeddings' not in data.keys():
@@ -197,20 +196,19 @@ class Dataset:
 
         _pool_arguments = [
             [
-                'temporal', None if skip_temporal_features else temporal_features, temporal_features.shape[2], temporal_feature_names,
-                numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
-                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_temporal_features
+                'temporal', temporal_features, temporal_feature_names, numerical_feature_names_set,
+                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                all_train_timestamps, skip_temporal_features
             ],
             [
-                'spatial', None if skip_spatial_features else spatial_features, spatial_features.shape[2], spatial_feature_names,
-                numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
-                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatial_features
+                'spatial', spatial_features, spatial_feature_names, numerical_feature_names_set,
+                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                all_train_timestamps, skip_spatial_features
             ],
             [
-                'spatiotemporal', None if skip_spatotemporal_features else spatiotemporal_features,
-                spatiotemporal_features.shape[2], spatiotemporal_feature_names, numerical_feature_names_set, categorical_feature_names_set,
-                numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps,
-                skip_spatotemporal_features
+                'spatiotemporal', spatiotemporal_features, spatiotemporal_feature_names, numerical_feature_names_set,
+                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                all_train_timestamps, skip_spatotemporal_features
             ]
         ]
         
@@ -218,11 +216,7 @@ class Dataset:
             features_preprocessing_results = preprocessing_pool.starmap(self._transform_feature_group, _pool_arguments)
 
         features_groups, feature_names_groups, numerical_features_masks_by_group = zip(*features_preprocessing_results)
-
-        temporal_features = features_groups[0] if features_groups[0] is not None else temporal_features
-        spatial_features = features_groups[1] if features_groups[1] is not None else spatial_features
-        spatiotemporal_features = features_groups[2] if features_groups[2] is not None else spatiotemporal_features
-
+        temporal_features, spatial_features, spatiotemporal_features = features_groups
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
 
@@ -711,8 +705,7 @@ class Dataset:
     def _transform_feature_group(
             self,
             features_type: tp.Literal['temporal', 'spatial', 'spatiotemporal'],
-            features: np.ndarray | None,
-            features_dim_size: int,  # NOTE we need this argument as we can't access the shape of Nonetype if features is None
+            features: np.ndarray,
             feature_names: tp.Sequence[str],
             numerical_features_names_set: set[str],
             categorical_features_names_set: set[str],
@@ -724,26 +717,31 @@ class Dataset:
             all_train_timestamps: tp.Sequence[int],
             skip: bool = False
     ):
-        numerical_features_mask = np.zeros(features_dim_size, dtype=bool)
-        categorical_features_mask = np.zeros(features_dim_size, dtype=bool)
+        numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
+        categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
         for i, feature_name in enumerate(feature_names):
             if feature_name in numerical_features_names_set:
                 numerical_features_mask[i] = True
             elif feature_name in categorical_features_names_set:
                 categorical_features_mask[i] = True
+
         if skip:
             print(f'Skipped preprocessing {features_type} features.')
-
             return features, feature_names, numerical_features_mask
-        print(f"{features_type=} {features.shape=} {features_dim_size=} {feature_names=} {categorical_features_mask=} {numerical_features_mask=}")
+
+        print(
+            f'{features_type=} {features.shape=} {feature_names=} '
+            f'{numerical_features_mask=} {categorical_features_mask=} '
+        )
 
         # Transform numerical features and impute NaNs in numerical features.
         if numerical_features_mask.any():
             numerical_features = features[:, :, numerical_features_mask]
+
             # Transform numerical features.
             numerical_features_transform = self.transforms[numerical_features_transform]()
-            numerical_features_subset_to_fit_transform = numerical_features.reshape(-1, numerical_features.shape[2]) if features_type == "spatial" else numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
-            numerical_features_transform.fit(numerical_features_subset_to_fit_transform)
+            train_idx = all_train_timestamps if features_type != 'spatial' else 0
+            numerical_features_transform.fit(numerical_features[train_idx].reshape(-1, numerical_features.shape[2]))
             numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
                 numerical_features.reshape(-1, numerical_features.shape[2])
