@@ -70,6 +70,8 @@ class Dataset:
         all_val_timestamps = data['val_timestamps']
         all_test_timestamps = data['test_timestamps']
 
+        train_slice = slice(all_train_timestamps[0], all_train_timestamps[-1] + 1)
+
         # PREPARE TARGETS
         (
             targets,
@@ -80,7 +82,7 @@ class Dataset:
             checkpoint_dir=state_handler.checkpoint_dir,
             data=data,
             targets_for_loss_transform=targets_for_loss_transform,
-            all_train_timestamps=all_train_timestamps,
+            train_slice=train_slice,
             targets_for_features_transform=targets_for_features_transform,
             targets_for_features_nan_imputation_strategy=targets_for_features_nan_imputation_strategy,
             nirvana=nirvana,
@@ -147,19 +149,19 @@ class Dataset:
                 'temporal', temporal_features if not skip_temporal_features else np.empty((0, 0, temporal_features.shape[2])),
                 temporal_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                all_train_timestamps, skip_temporal_features, state_handler.checkpoint_dir, nirvana
+                train_slice, skip_temporal_features, state_handler.checkpoint_dir, nirvana
             ],
             [
                 'spatial', spatial_features if not skip_spatial_features else np.empty((0, 0, spatial_features.shape[2])),
                 spatial_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                all_train_timestamps, skip_spatial_features, state_handler.checkpoint_dir, nirvana
+                train_slice, skip_spatial_features, state_handler.checkpoint_dir, nirvana
             ],
             [
                 'spatiotemporal', spatiotemporal_features if not skip_spatiotemporal_features else np.empty((0, 0, spatiotemporal_features.shape[2])),
                 spatiotemporal_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                all_train_timestamps, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana
+                train_slice, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana
             ]
         ]
 
@@ -337,7 +339,7 @@ class Dataset:
         )
 
         # Remove train timestamps for which all targets are NaNs.
-        train_targets_nan_mask = targets_nan_mask[all_train_timestamps[first_train_timestamp + 1:]]
+        train_targets_nan_mask = targets_nan_mask[first_train_timestamp + 1:all_train_timestamps[-1] + 1]
         if only_predict_at_end_of_horizon or prediction_horizon == 1:
             # In this case max_prediction_shift is the only prediction shift.
             # Transform train_targets_nan_mask to shape [len(train_timestamps), num_nodes].
@@ -699,7 +701,7 @@ class Dataset:
                 'quantile-transform-normal', 'quantile-transform-uniform'
             ],
             numerical_features_nan_imputation_strategy: tp.Literal['mean', 'median', 'most_frequent', 'constant'],
-            all_train_timestamps: tp.Sequence[int],
+            train_slice: slice,
             skip: bool = False,
             checkpoint_dir: Path = Path("NULL"),
             nirvana: bool = False,
@@ -727,8 +729,10 @@ class Dataset:
 
             # Transform numerical features.
             numerical_features_transform = self.transforms[numerical_features_transform]()
-            train_idx = all_train_timestamps if features_type != 'spatial' else 0
-            numerical_features_transform.fit(numerical_features[train_idx].reshape(-1, numerical_features.shape[2]))
+            numerical_features_transform.fit(
+                numerical_features.squeeze(0) if features_type == 'spatial' else
+                numerical_features[train_slice].reshape(-1, numerical_features.shape[2])
+            )
             numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
                 numerical_features.reshape(-1, numerical_features.shape[2])
@@ -815,7 +819,7 @@ class Dataset:
 
         return features, feature_names, numerical_features_mask
 
-    def _prepare_targets_or_return_from_state(self, checkpoint_dir: Path, data, targets_for_loss_transform, all_train_timestamps,
+    def _prepare_targets_or_return_from_state(self, checkpoint_dir: Path, data, targets_for_loss_transform, train_slice,
                                                   targets_for_features_transform, targets_for_features_nan_imputation_strategy,nirvana):
         targets_prepared_file = checkpoint_dir / "__targets_prepared.npy"
         targets_nan_mask_prepared_file = checkpoint_dir / "__targets_nan_mask_prepared.npy"
@@ -837,12 +841,12 @@ class Dataset:
             # computation during training (note that during evaluation the predictions will be passed through the reverse
             # transform and the metrics will be computed using the original untransformed targets).
             targets_for_loss_transform = self.transforms[targets_for_loss_transform]()
-            targets_for_loss_transform.fit(targets[all_train_timestamps].reshape(-1, 1))
+            targets_for_loss_transform.fit(targets[train_slice].reshape(-1, 1))
 
             # Prepare the transform that will be applied to targets from the past timestamps and the current timestamp and
             # provided as features to the model.
             targets_for_features_transform = self.transforms[targets_for_features_transform]()
-            targets_for_features_transform.fit(targets[all_train_timestamps].reshape(-1, 1))
+            targets_for_features_transform.fit(targets[train_slice].reshape(-1, 1))
 
             # Impute NaNs in targets.
             if targets_for_features_nan_imputation_strategy == 'prev':
@@ -860,9 +864,9 @@ class Dataset:
                         # If there are timestamps for which all targets are NaN, then we will impute targets of nodes
                         # with no known targets at each timestamp with the mean of all known targets of all nodes at all
                         # train timestamps.
-                        targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets[all_train_timestamps])
+                        targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets[train_slice])
 
-                if np.isnan(targets)[all_train_timestamps].all(axis=0).any():
+                if np.isnan(targets)[train_slice].all(axis=0).any():
                     raise RuntimeError(
                         'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
                         'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
