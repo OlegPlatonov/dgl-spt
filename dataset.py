@@ -738,7 +738,7 @@ class Dataset:
             numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
 
         print(f'Processed {features_type} features.')
-        if checkpoint_dir.exists() and nirvana:
+        if checkpoint_dir.exists() and nirvana:  # NOTE we'll never step on this line for already preprocessed features, so there is no need to create additional conditions 
             print(f"Saved prepared {features_type} features for further checkpointing")
             prepared_features_file = str(checkpoint_dir / f"__{features_type}_features_prepared.npy")
             np.save(prepared_features_file, features)
