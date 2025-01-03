@@ -751,6 +751,7 @@ class Dataset:
         targets_for_features_transform_prepared_file = checkpoint_dir / "__targets_for_features_transform_prepared.bin"
 
         if targets_prepared_file.exists() and targets_nan_mask_prepared_file.exists() and nirvana:
+            print("Loading prepared targets")
             targets = np.load(str(targets_prepared_file))
             targets_nan_mask = np.load(str(targets_nan_mask_prepared_file))
             targets_for_loss_transform = joblib.load(targets_for_loss_transform_prepared_file)
@@ -822,7 +823,7 @@ class Dataset:
             np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
             joblib.dump(targets_for_loss_transform, targets_for_loss_transform_prepared_file)
             joblib.dump(targets_for_features_transform, targets_for_features_transform_prepared_file)
-        breakpoint()
+
         return targets, targets_nan_mask, targets_for_loss_transform, targets_for_features_transform
 
     def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int, nirvana: bool):
@@ -831,6 +832,7 @@ class Dataset:
             temporal_features = np.load(str(temporal_features_prepared_file))
             temporal_feature_names = data['temporal_node_feature_names'].tolist()
             skip_temporal_features = True
+            print("Loaded prepared temporal features")
         else:
             if do_not_use_temporal_features:
                 temporal_features = np.empty((num_timestamps, 1, 0), dtype=np.float32)
@@ -849,6 +851,7 @@ class Dataset:
             spatial_features = np.load(str(spatial_features_prepared_file))
             spatial_feature_names = data['spatial_node_feature_names'].tolist()
             skip_spatial_features = True
+            print("Loaded prepared spatial features")
         else:
             if do_not_use_spatial_features:
                 spatial_features = np.empty((1, num_nodes, 0), dtype=np.float32)
@@ -863,10 +866,11 @@ class Dataset:
     def _prepare_spatiotemporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatiotemporal_features: bool, num_timestamps, num_nodes,
                                                               spatiotemporal_features_local_processed_memmap_name, data_root, nirvana: bool):
         spatiotemporal_features_prepared_file = checkpoint_dir / "__spatiotemporal_features_prepared.npy"
-        if spatiotemporal_features_prepared_file.exists() and nirvana:
+        if spatiotemporal_features_prepared_file.exists() and nirvana and spatiotemporal_features_local_processed_memmap_name is None:
             spatiotemporal_features = np.load(str(spatiotemporal_features_prepared_file))
             spatiotemporal_feature_names = data['spatiotemporal_node_feature_names'].tolist()
             skip_spatotemporal_features = True
+            print("Loaded prepared (not memmap) spatiotemporal features")
         else:
             if do_not_use_spatiotemporal_features:
                 spatiotemporal_features = np.empty((num_timestamps, num_nodes, 0), dtype=np.float32)
@@ -886,6 +890,7 @@ class Dataset:
                         shape=(num_timestamps, num_nodes, len(spatiotemporal_feature_names)),
                         # device=torch.device(device),
                     )
+                    print("Loaded preprocessed memmap features from YT")
         return spatiotemporal_features, spatiotemporal_feature_names, skip_spatotemporal_features
 
 
