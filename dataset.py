@@ -110,18 +110,18 @@ class Dataset:
             [
                 'temporal', None if skip_temporal_features else temporal_features, temporal_features.shape[2], temporal_feature_names,
                 numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
-                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_temporal_features, state_handler.checkpoint_dir
+                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_temporal_features, state_handler.checkpoint_dir, nirvana
             ],
             [
                 'spatial', None if skip_spatial_features else spatial_features, spatial_features.shape[2], spatial_feature_names,
                 numerical_feature_names_set, categorical_feature_names_set, numerical_features_transform,
-                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatial_features, state_handler.checkpoint_dir
+                numerical_features_nan_imputation_strategy, all_train_timestamps, skip_spatial_features, state_handler.checkpoint_dir, nirvana
             ],
             [
                 'spatiotemporal', None if skip_spatotemporal_features else spatiotemporal_features,
                 spatiotemporal_features.shape[2], spatiotemporal_feature_names, numerical_feature_names_set, categorical_feature_names_set,
                 numerical_features_transform, numerical_features_nan_imputation_strategy, all_train_timestamps,
-                skip_spatotemporal_features, state_handler.checkpoint_dir
+                skip_spatotemporal_features, state_handler.checkpoint_dir, nirvana
             ]
         ]
         
@@ -636,6 +636,7 @@ class Dataset:
             all_train_timestamps: tp.Sequence[int],
             skip: bool = False,
             checkpoint_dir: Path = Path("NULL"),
+            nirvana: bool = False,
     ):
         numerical_features_mask = np.zeros(features_dim_size, dtype=bool)
         categorical_features_mask = np.zeros(features_dim_size, dtype=bool)
@@ -737,7 +738,8 @@ class Dataset:
             numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
 
         print(f'Processed {features_type} features.')
-        if checkpoint_dir.exists():
+        if checkpoint_dir.exists() and nirvana:
+            print(f"Saved prepared {features_type} features for further checkpointing")
             prepared_features_file = str(checkpoint_dir / f"__{features_type}_features_prepared.npy")
             np.save(prepared_features_file, features)
 
