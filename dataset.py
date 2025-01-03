@@ -38,7 +38,6 @@ class Dataset:
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
                  pyg=False):
-
         DATA_ROOT = 'data'
 
         # torch.set_default_device(device)
@@ -122,7 +121,7 @@ class Dataset:
             # fill. Note that we have already verified that there are at least some train target values that are not
             # NaN for each node, and thus it is guaranteed that this will not lead to future targets leakage from val
             # and test timestamps.
-            if np.isnan(targets_df.values).any():
+            if np.isnan(targets).any():
                 targets_df.bfill(axis=0, inplace=True)
 
             # targets numpy array has been modified by modifying targets_df pandas dataframe which shares the data
@@ -329,7 +328,7 @@ class Dataset:
         past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
         features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
                         temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
-                        deepwalk_embeddings.shape[2])  # TODO add targets Nan mask
+                        deepwalk_embeddings.shape[2])
 
         past_targets_mask = np.zeros(features_dim, dtype=bool)
         past_targets_mask[:past_targets_features_dim] = True
@@ -501,7 +500,7 @@ class Dataset:
 
         past_targets = self.targets[past_timestamps].to(self.device)
         past_targets_orig_shape = past_targets.shape
-        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1)) \
+        past_targets = self.targets_for_features_transform.transform(past_targets.reshape(-1, 1))\
             .reshape(*past_targets_orig_shape)
         past_targets = past_targets.T.unsqueeze(-1)
 
