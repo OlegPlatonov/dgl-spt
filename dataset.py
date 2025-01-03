@@ -188,12 +188,8 @@ class Dataset:
         )
 
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
-
-        numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
-
-        numerical_features_mask = np.concatenate(
-            [numerical_features_mask, np.zeros(deepwalk_embeddings.shape[2], dtype=bool)], axis=0
-        )
+        numerical_temporal_features_mask, numerical_spatial_features_mask, numerical_spatiotemporal_features_mask = \
+            numerical_features_masks_by_group
 
         # PREPARE GRAPH
 
@@ -299,19 +295,6 @@ class Dataset:
             # and because of this it will not be possible to load it into a torch tensor using torch.from_numpy.
             past_timestamp_shifts_for_features = past_timestamp_shifts_for_features[::-1].copy()
 
-        past_targets_features_dim = 1 if provide_sequnce_inputs else len(past_timestamp_shifts_for_features)
-        past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
-        features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
-                        temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
-                        deepwalk_embeddings.shape[2])
-
-        past_targets_mask = np.zeros(features_dim, dtype=bool)
-        past_targets_mask[:past_targets_features_dim] = True
-
-        numerical_features_mask_extension = np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim,
-                                                     dtype=bool)
-        numerical_features_mask = np.concatenate([numerical_features_mask_extension, numerical_features_mask], axis=0)
-
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO FUTURE TARGETS THAT WILL BE PREDICTED
 
         if only_predict_at_end_of_horizon:
@@ -365,6 +348,27 @@ class Dataset:
             drop_train_timestamps_mask = train_targets_nan_mask.all(axis=(1, 2))
 
         train_timestamps = train_timestamps[~drop_train_timestamps_mask]
+
+        # COMPUTE FEATURES DIM AND PREPARE FEATURES MASKS
+
+        # Dataset provides features as a single tensor. In this tensor, the order of features is as follows:
+        # past targets, past targets NaN mask, temporal features, spatial features, spatiotemporal features,
+        # deepwalk node embeddings.
+
+        past_targets_features_dim = 1 if provide_sequnce_inputs else len(past_timestamp_shifts_for_features)
+        past_targets_nan_mask_features_dim = past_targets_features_dim * add_nan_indicators_to_targets_for_features
+        features_dim = (past_targets_features_dim + past_targets_nan_mask_features_dim +
+                        temporal_features.shape[2] + spatial_features.shape[2] + spatiotemporal_features.shape[2] +
+                        deepwalk_embeddings.shape[2])
+
+        past_targets_mask = np.zeros(features_dim, dtype=bool)
+        past_targets_mask[:past_targets_features_dim] = True
+
+        numerical_features_mask = np.concatenate([
+            np.zeros(past_targets_features_dim + past_targets_nan_mask_features_dim, dtype=bool),
+            numerical_temporal_features_mask, numerical_spatial_features_mask, numerical_spatiotemporal_features_mask,
+            np.zeros(deepwalk_embeddings.shape[2], dtype=bool)
+        ], axis=0)
 
         # STORE EVERYTHING WE MIGHT NEED
 
