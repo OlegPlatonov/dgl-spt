@@ -74,7 +74,7 @@ class Dataset:
         all_test_timestamps = data['test_timestamps']
 
         # PREPARE TARGETS
-        targets, targets_nan_mask = self._prepare_targets_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, targets_for_loss_transform=targets_for_loss_transform,
+        targets, targets_nan_mask, targets_for_loss_transform, targets_for_features_transform = self._prepare_targets_or_return_from_state(checkpoint_dir=state_handler.checkpoint_dir, data=data, targets_for_loss_transform=targets_for_loss_transform,
                                                              all_train_timestamps=all_train_timestamps, targets_for_features_transform=targets_for_features_transform,
                                                              targets_for_features_nan_imputation_strategy=targets_for_features_nan_imputation_strategy, nirvana=nirvana)
 
