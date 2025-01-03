@@ -144,17 +144,20 @@ class Dataset:
 
         _pool_arguments = [
             [
-                'temporal', temporal_features, temporal_feature_names, numerical_feature_names_set,
+                'temporal', temporal_features if not skip_temporal_features else np.empty((0, 0, temporal_features.shape[2])),
+                temporal_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
                 all_train_timestamps, skip_temporal_features, state_handler.checkpoint_dir, nirvana
             ],
             [
-                'spatial', spatial_features, spatial_feature_names, numerical_feature_names_set,
+                'spatial', spatial_features if not skip_spatial_features else np.empty((0, 0, spatial_features.shape[2])),
+                spatial_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
                 all_train_timestamps, skip_spatial_features, state_handler.checkpoint_dir, nirvana
             ],
             [
-                'spatiotemporal', spatiotemporal_features, spatiotemporal_feature_names, numerical_feature_names_set,
+                'spatiotemporal', spatiotemporal_features if not skip_spatiotemporal_features else np.empty((0, 0, spatiotemporal_features.shape[2])),
+                spatiotemporal_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
                 all_train_timestamps, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana
             ]
