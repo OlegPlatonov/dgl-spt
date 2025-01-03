@@ -811,8 +811,13 @@ class Dataset:
             else:
                 raise ValueError(f'Unsupported value for targets_for_features_nan_imputation_strategy: '
                                 f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
+<<<<<<< HEAD
             np.save(str(targets_prepared_file), targets)
             np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
+=======
+            np.save(targets, str(targets_prepared_file))
+            np.save(targets_nan_mask, str(targets_nan_mask_prepared_file))
+>>>>>>> d2947746a30415894601bae022a4bea6011048c8
         return targets, targets_nan_mask
 
     def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int):
