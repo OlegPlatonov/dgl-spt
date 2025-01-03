@@ -736,7 +736,7 @@ class Dataset:
 
         print(f'Processed {features_type} features.')
         if checkpoint_dir.exists():
-            prepared_features_file = checkpoint_dir / f"__{features_type}_features_prepared.npy"
+            prepared_features_file = str(checkpoint_dir / f"__{features_type}_features_prepared.npy")
             np.save(prepared_features_file, features)
 
         return features, feature_names, numerical_features_mask
@@ -747,8 +747,8 @@ class Dataset:
         targets_nan_mask_prepared_file = checkpoint_dir / "__targets_prepared.npy"
 
         if targets_prepared_file.exists() and targets_nan_mask_prepared_file.exists():
-            targets = np.load(targets_prepared_file)
-            targets_nan_mask = np.load(targets_nan_mask_prepared_file)
+            targets = np.load(str(targets_prepared_file))
+            targets_nan_mask = np.load(str(targets_nan_mask_prepared_file))
         else:
             targets = data['targets'].astype(np.float32)
             targets_nan_mask = np.isnan(targets)
@@ -811,14 +811,14 @@ class Dataset:
             else:
                 raise ValueError(f'Unsupported value for targets_for_features_nan_imputation_strategy: '
                                 f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
-            np.save(targets, targets_prepared_file)
-            np.save(targets_nan_mask, targets_nan_mask_prepared_file)
+            np.save(targets, str(targets_prepared_file))
+            np.save(targets_nan_mask, str(targets_nan_mask_prepared_file))
         return targets, targets_nan_mask
 
     def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int):
         temporal_features_prepared_file = checkpoint_dir / "__temporal_features_prepared.npy"
         if temporal_features_prepared_file.exists():
-            temporal_features = np.load(temporal_features_prepared_file)
+            temporal_features = np.load(str(temporal_features_prepared_file))
             temporal_feature_names = data['temporal_node_feature_names'].tolist()
             skip_temporal_features = True
         else:
@@ -836,7 +836,7 @@ class Dataset:
     def _prepare_spatial_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatial_features: bool, num_nodes: int):
         spatial_features_prepared_file = checkpoint_dir / "__spatial_features_prepared.npy"
         if spatial_features_prepared_file.exists():
-            spatial_features = np.load(spatial_features_prepared_file)
+            spatial_features = np.load(str(spatial_features_prepared_file))
             spatial_feature_names = data['spatial_node_feature_names'].tolist()
             skip_spatial_features = True
         else:
@@ -854,7 +854,7 @@ class Dataset:
                                                               spatiotemporal_features_local_processed_memmap_name, data_root):
         spatiotemporal_features_prepared_file = checkpoint_dir / "__spatiotemporal_features_prepared.npy"
         if spatiotemporal_features_prepared_file.exists():
-            spatiotemporal_features = np.load(spatiotemporal_features_prepared_file)
+            spatiotemporal_features = np.load(str(spatiotemporal_features_prepared_file))
             spatiotemporal_feature_names = data['spatiotemporal_node_feature_names'].tolist()
             skip_spatotemporal_features = True
         else:
