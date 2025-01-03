@@ -220,6 +220,10 @@ class Dataset:
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_features_mask = np.concatenate(numerical_features_masks_by_group, axis=0)
 
+        numerical_features_mask = np.concatenate(
+            [numerical_features_mask, np.zeros(deepwalk_embeddings.shape[2], dtype=bool)], axis=0
+        )
+
         # PREPARE GRAPH
 
         if sum([reverse_edges, to_undirected, use_forward_and_reverse_edges_as_different_edge_types]) > 1:
