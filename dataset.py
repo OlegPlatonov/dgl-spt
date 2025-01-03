@@ -955,9 +955,7 @@ class Dataset:
                 else:
                     spatiotemporal_features = read_memmap(
                         filepath=os.path.join(data_root, spatiotemporal_features_local_processed_memmap_name),
-                        # filepath=os.path.join(DATA_ROOT, spatiotemporal_features_local_processed_memmap_name),
                         shape=(num_timestamps, num_nodes, len(spatiotemporal_feature_names)),
-                        # device=torch.device(device),
                     )
                     skip_spatiotemporal_features = True
                     print("Loaded preprocessed memmap features from YT")

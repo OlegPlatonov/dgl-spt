@@ -413,12 +413,11 @@ def get_tensor_or_wrap_memmap(array_or_memmap: np.ndarray | torch.Tensor | np.me
 
 def read_memmap(filepath: str,
                 shape: tuple[int, ...],
-                device: torch.device = None,
                 dtype: torch.dtype = torch.float32) -> torch.Tensor:
     number_of_elements = np.prod(shape)
 
-    # return torch.load(f=filepath, weights_only=True, map_location=device, mmap=True)
+    # return torch.load(f=filepath, weights_only=True, mmap=True)
     return torch.from_file(
-        filename=filepath, size=number_of_elements, dtype=dtype, device=None, shared=False
+        filename=filepath, size=number_of_elements, dtype=dtype, shared=False
     ).reshape(shape)
     # return torch.tensor(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape))
