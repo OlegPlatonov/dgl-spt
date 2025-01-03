@@ -429,6 +429,8 @@ class Dataset:
         self.spatiotemporal_feature_names = spatiotemporal_feature_names
         self.deepwalk_embeddings = get_tensor_or_wrap_memmap(deepwalk_embeddings)
 
+        # Spatial node features and node embeddings are the same for all timestamps, so we load them on the appropriate
+        # device and batch in advance to avoid doing it each training step.
         self.spatial_features_batched_train = self.spatial_features.to(device).repeat(1, train_batch_size, 1)
         self.deepwalk_embeddings_batched_train = self.deepwalk_embeddings.to(device).repeat(1, train_batch_size, 1)
         if eval_batch_size is None or eval_batch_size == train_batch_size:
