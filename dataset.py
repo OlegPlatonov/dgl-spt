@@ -102,14 +102,14 @@ class Dataset:
                 if not targets_nan_mask.all(axis=1).any():
                     # If there are no timestamps for which all targets are NaN, then we will impute targets of nodes
                     # with no known targets at each timestamp with the mean of all known targets at this timestamp.
-                    targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets, axis=1)
+                    targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets, axis=1, keepdims=True)
                 else:
                     # If there are timestamps for which all targets are NaN, then we will impute targets of nodes
                     # with no known targets at each timestamp with the mean of all known targets of all nodes at all
                     # train timestamps.
                     targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets[all_train_timestamps])
 
-            if targets_nan_mask[all_train_timestamps].all(axis=0).any():
+            if np.isnan(targets)[all_train_timestamps].all(axis=0).any():
                 raise RuntimeError(
                     'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
                     'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
