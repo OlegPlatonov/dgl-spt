@@ -81,6 +81,22 @@ def get_args(add_name: bool = True):
     parser.add_argument('--do_not_use_spatial_features', default=False, action='store_true')
     parser.add_argument('--do_not_use_spatiotemporal_features', default=False, action='store_true')
 
+    # The next two arguments determine which time-based temporal features will be created. These features will be used
+    # even if do_not_use_temporal_features argument is True. To prevent using them, set any of these two arguments to
+    # an empty list.
+    parser.add_argument('--time_based_features_types', nargs='*', type=str, choices=['one-hot', 'sin-cos'],
+                        default=['one-hot', 'sin-cos'])
+    parser.add_argument('--time_based_features_periods', nargs='*', type=str,
+                        choices=['time-in-hour', 'time-in-day', 'hour-in-day', 'day-in-week', 'day-in-month',
+                                 'day-in-year', 'week-in-year', 'month-in-year', 'auto'], default=['auto'],
+                        help='auto will add periods based on train timespan and timestamp frequency from '
+                             'the following set: '
+                             'time-in-day (if there are at leat 5 train days and timestamp frequency is less than '
+                             '1 day), '
+                             'day-in-week (if there are at least 2 train weeks), '
+                             'week-in-year (if there are at least 2 train years), '
+                             'month-in-year (if there are at least 2 train years).')
+
     # Add additional node features.
     parser.add_argument('--use_deepwalk_node_embeddings', default=False, action='store_true')
     parser.add_argument('--use_learnable_node_embeddings', default=False, action='store_true',
@@ -474,6 +490,8 @@ def main():
         do_not_use_temporal_features=args.do_not_use_temporal_features,
         do_not_use_spatial_features=args.do_not_use_spatial_features,
         do_not_use_spatiotemporal_features=args.do_not_use_spatiotemporal_features,
+        time_based_features_types=args.time_based_features_types,
+        time_based_features_periods=args.time_based_features_periods,
         use_deepwalk_node_embeddings=args.use_deepwalk_node_embeddings,
         initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
         numerical_features_transform=args.numerical_features_transform,

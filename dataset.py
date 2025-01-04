@@ -13,6 +13,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 
 from data_transforms import IdentityTransform, StandardScaler, MinMaxScaler, RobustScaler, QuantileTransform
+from time_based_features import create_time_based_features
 from utils import NirvanaNpzDataWrapper, StateHandler, get_tensor_or_wrap_memmap, read_memmap
 from nirvana_utils import copy_out_to_snapshot
 
@@ -35,8 +36,9 @@ class Dataset:
                  add_self_loops=False, targets_for_loss_transform='none', targets_for_features_transform='none',
                  targets_for_features_nan_imputation_strategy='prev', add_nan_indicators_to_targets_for_features=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
-                 do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
-                 initialize_learnable_node_embeddings_with_deepwalk=False,
+                 do_not_use_spatiotemporal_features=False,
+                 time_based_features_types=('one-hot', 'sin-cos'), time_based_features_periods=('auto',),
+                 use_deepwalk_node_embeddings=False, initialize_learnable_node_embeddings_with_deepwalk=False,
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
@@ -193,6 +195,22 @@ class Dataset:
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_temporal_features_mask, numerical_spatial_features_mask, numerical_spatiotemporal_features_mask = \
             numerical_features_masks_by_group
+
+        # Add time-based features.
+        if time_based_features_types and time_based_features_periods:
+            unix_timestamps = data['unix_timestamps']
+
+            time_based_features, time_based_feature_names, numerical_time_based_features_mask = \
+                create_time_based_features(unix_timestamps=unix_timestamps,
+                                           time_based_features_types=time_based_features_types,
+                                           time_based_features_periods=time_based_features_periods,
+                                           last_train_timestamp_idx=all_train_timestamps[-1])
+
+            temporal_features = np.concatenate([temporal_features, time_based_features], axis=2)
+            temporal_feature_names += time_based_feature_names
+            numerical_temporal_features_mask = np.concatenate(
+                [numerical_temporal_features_mask, numerical_time_based_features_mask], axis=0
+            )
 
         # PREPARE GRAPH
 
