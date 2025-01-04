@@ -417,7 +417,7 @@ def read_memmap(filepath: str,
     number_of_elements = np.prod(shape)
 
     # return torch.load(f=filepath, weights_only=True, mmap=True)
-    # return torch.from_file(
-    #     filename=filepath, size=number_of_elements, dtype=dtype, shared=False
-    # ).reshape(shape)
-    return torch.tensor(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape))
+    return torch.from_file(
+        filename=filepath, size=number_of_elements, dtype=dtype, shared=False
+    ).reshape(shape)
+    # return torch.tensor(np.memmap(filename=filepath, dtype="float32", mode="r", shape=shape))
