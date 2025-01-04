@@ -61,6 +61,9 @@ Note that `cat_features_dim` can be zero (if there are no categorical features i
 - **`edges`**: an array of shape `[num_edges, 2]` containing directed edges of the graph in the edge list format.
 If your graph is undirected, duplicate each edge (i.e., put both `(u, v)` and `(v, u)` edges in the array).
 
+- **`unix_timestamps`**: a 1-dimensional array of length `num_timestamps` containing the Unix time of each timestamp.
+It will be used to automatically create time-based temporal features such as day of week.
+
 Other optional objects and metadata can be added to the `.npz` dataset files as well. For example, in all our datasets,
 we also provide the following objects: `num_timestamps` (of type `int`) and `num_nodes` (of type `int`)
 (if not provided, these two values are inferred from the `targets` array shape),

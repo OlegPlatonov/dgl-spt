@@ -13,6 +13,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 
 from data_transforms import IdentityTransform, StandardScaler, MinMaxScaler, RobustScaler, QuantileTransform
+from time_based_features import create_time_based_features
 from utils import NirvanaNpzDataWrapper, StateHandler, get_tensor_or_wrap_memmap, read_memmap
 from nirvana_utils import copy_out_to_snapshot
 
@@ -35,8 +36,9 @@ class Dataset:
                  add_self_loops=False, targets_for_loss_transform='none', targets_for_features_transform='none',
                  targets_for_features_nan_imputation_strategy='prev', add_nan_indicators_to_targets_for_features=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
-                 do_not_use_spatiotemporal_features=False, use_deepwalk_node_embeddings=False,
-                 initialize_learnable_node_embeddings_with_deepwalk=False,
+                 do_not_use_spatiotemporal_features=False,
+                 time_based_features_types=('one-hot', 'sin-cos'), time_based_features_periods=('auto',),
+                 use_deepwalk_node_embeddings=False, initialize_learnable_node_embeddings_with_deepwalk=False,
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
@@ -195,6 +197,22 @@ class Dataset:
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_temporal_features_mask, numerical_spatial_features_mask, numerical_spatiotemporal_features_mask = \
             numerical_features_masks_by_group
+
+        # Add time-based features.
+        if time_based_features_types and time_based_features_periods:
+            unix_timestamps = data['unix_timestamps']
+
+            time_based_features, time_based_feature_names, numerical_time_based_features_mask = \
+                create_time_based_features(unix_timestamps=unix_timestamps,
+                                           time_based_features_types=time_based_features_types,
+                                           time_based_features_periods=time_based_features_periods,
+                                           last_train_timestamp_idx=all_train_timestamps[-1])
+
+            temporal_features = np.concatenate([temporal_features, time_based_features], axis=2)
+            temporal_feature_names += time_based_feature_names
+            numerical_temporal_features_mask = np.concatenate(
+                [numerical_temporal_features_mask, numerical_time_based_features_mask], axis=0
+            )
 
         # PREPARE GRAPH
 
@@ -967,32 +985,3 @@ class Dataset:
                     skip_spatiotemporal_features = True
                     print("Loaded preprocessed memmap features from YT")
         return spatiotemporal_features, spatiotemporal_feature_names, skip_spatiotemporal_features
-
-
-class TimestampsSampler:
-    def __init__(self, size: int, batch_size: int, shuffle: bool = False, seed: int = 42, number_of_batches_to_skip: int = 0) -> None:
-
-        self._generator = torch.Generator().manual_seed(seed)
-        self._indices_to_sample: list[int] = self._get_sampler(size=size, batch_size=batch_size, shuffle=shuffle, number_of_batches_to_skip=number_of_batches_to_skip)
-
-    def _get_sampler(self, size: int, batch_size: int, shuffle: bool, number_of_batches_to_skip: int) -> list[int]:
-        elements_to_skip = batch_size * number_of_batches_to_skip
-        if elements_to_skip > size:
-            elements_to_skip = size % elements_to_skip  # in case where StateHandler puts here the number of overall steps during training instead of steps during epoch
-
-        if elements_to_skip > 0:
-            print(f'Skipping first {elements_to_skip} samples which comprise first {number_of_batches_to_skip} batches of data as they were already processed in the previous run')
-        # now when we have generated the same sequence as before, we need to slice it to get only indices which haven't been processed yet during the previous run
-        if shuffle:
-            indices: torch.LongTensor = torch.randperm(n=size, generator=self._generator)
-        else:
-            indices = torch.arange(size)
-
-        indices_to_sample: list[int] = indices[elements_to_skip:].tolist()
-        return indices_to_sample
-
-    def __len__(self):
-        return len(self._indices_to_sample)
-
-    def __iter__(self):
-        yield from self._indices_to_sample
