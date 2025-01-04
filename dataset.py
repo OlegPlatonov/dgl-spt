@@ -727,8 +727,10 @@ class Dataset:
 
             # Transform numerical features.
             numerical_features_transform = self.transforms[numerical_features_transform]()
-            train_idx = all_train_timestamps if features_type != 'spatial' else 0
-            numerical_features_transform.fit(numerical_features[train_idx].reshape(-1, numerical_features.shape[2]))
+            numerical_features_transform.fit(
+                numerical_features.squeeze(0) if features_type == 'spatial' else
+                numerical_features[all_train_timestamps].reshape(-1, numerical_features.shape[2])
+            )
             numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
                 numerical_features.reshape(-1, numerical_features.shape[2])
