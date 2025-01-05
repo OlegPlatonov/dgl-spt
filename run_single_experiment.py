@@ -358,13 +358,13 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
     train_loader = DataLoader(TrainDatasetSubsetWrapper(dataset), batch_size=dataset.train_batch_size,
                               collate_fn=lambda x: x, shuffle=True, drop_last=True, num_workers=num_dataloader_workers,
-                              pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn)
+                              pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn, prefetch_factor=4)
     val_loader = DataLoader(ValDatasetSubsetWrapper(dataset), batch_size=dataset.eval_batch_size,
                             collate_fn=lambda x: x, shuffle=False, drop_last=False, num_workers=num_dataloader_workers,
-                            pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn)
+                            pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn, prefetch_factor=4)
     test_loader = DataLoader(TestDatasetSubsetWrapper(dataset), batch_size=dataset.eval_batch_size,
                              collate_fn=lambda x: x, shuffle=False, drop_last=False, num_workers=num_dataloader_workers,
-                             pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn)
+                             pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn, prefetch_factor=4)
 
     num_steps = len(train_loader) * num_epochs
 
