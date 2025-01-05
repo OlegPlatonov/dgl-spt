@@ -1,3 +1,4 @@
+import os
 import argparse
 from tqdm import tqdm
 from pathlib import Path
@@ -11,6 +12,17 @@ from dataset import Dataset, TrainDatasetSubsetWrapper, ValDatasetSubsetWrapper,
 from models import ModelRegistry
 from utils import Logger, get_parameter_groups, DummyHandler, NirvanaStateHandler, StateHandler
 
+
+
+def worker_init_fn(worker_id):
+    # Limit each worker process to 1 thread
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
@@ -346,13 +358,13 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
     train_loader = DataLoader(TrainDatasetSubsetWrapper(dataset), batch_size=dataset.train_batch_size,
                               collate_fn=lambda x: x, shuffle=True, drop_last=True, num_workers=num_dataloader_workers,
-                              pin_memory=True, pin_memory_device=device)
+                              pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn)
     val_loader = DataLoader(ValDatasetSubsetWrapper(dataset), batch_size=dataset.eval_batch_size,
                             collate_fn=lambda x: x, shuffle=False, drop_last=False, num_workers=num_dataloader_workers,
-                            pin_memory=True, pin_memory_device=device)
+                            pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn)
     test_loader = DataLoader(TestDatasetSubsetWrapper(dataset), batch_size=dataset.eval_batch_size,
                              collate_fn=lambda x: x, shuffle=False, drop_last=False, num_workers=num_dataloader_workers,
-                             pin_memory=True, pin_memory_device=device)
+                             pin_memory=True, pin_memory_device=device, worker_init_fn=worker_init_fn)
 
     num_steps = len(train_loader) * num_epochs
 
