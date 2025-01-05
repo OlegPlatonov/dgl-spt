@@ -817,7 +817,7 @@ class Dataset:
 
 
 class TrainDatasetSubsetWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset):
+    def __init__(self, dataset: Dataset):
         self.dataset = dataset
 
     def __len__(self):
@@ -831,7 +831,7 @@ class TrainDatasetSubsetWrapper(torch.utils.data.Dataset):
 
 
 class ValDatasetSubsetWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset):
+    def __init__(self, dataset: Dataset):
         self.dataset = dataset
 
     def __len__(self):
@@ -845,7 +845,7 @@ class ValDatasetSubsetWrapper(torch.utils.data.Dataset):
 
 
 class TestDatasetSubsetWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset):
+    def __init__(self, dataset: Dataset):
         self.dataset = dataset
 
     def __len__(self):
