@@ -220,7 +220,7 @@ def get_args(add_name: bool = True):
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--no_amp', default=False, action='store_true')
     parser.add_argument('--no_gradscaler', default=False, action='store_true')
-    parser.add_argument('--num_dataloader_workers', type=int, default=8)
+    parser.add_argument('--num_dataloader_workers', type=int, default=16)
     parser.add_argument('--num_threads', type=int, default=32)
     parser.add_argument('--nirvana', default=False, action='store_true',
                         help='Indicates that experiment is being run in Nirvana.')
