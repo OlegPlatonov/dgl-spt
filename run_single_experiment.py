@@ -229,6 +229,8 @@ def get_args(add_name: bool = True):
                         help='Indicates that experiment is being run in Nirvana.')
     parser.add_argument('--checkpoint_steps_interval', type=int, default=1000,
                         help='Only used in Nirvana: interval for saving experiment state to $SNAPSHOT_PATH.')
+    parser.add_argument('--compile', default=False, action='store_true',
+                        help='Enables model compilation.')
 
     args = parser.parse_args()
 
@@ -549,6 +551,8 @@ def main():
             plr_past_targets_shared_linear=args.plr_past_targets_shared_linear,
             plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
         )
+        if args.compile:
+            model = torch.compile(model, dynamic=True)
 
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
