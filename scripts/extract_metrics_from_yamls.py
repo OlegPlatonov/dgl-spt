@@ -44,6 +44,9 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
         # metrics_dict_for_run = args
 
         for metric_in_script, metric_for_pulsar_corresponding_name in sorted(metric_field_to_pulsar_unified.items()):
+            if metric_in_script not in metrics:
+                continue
+
             metric_value = metrics[metric_in_script]
             metric_value = metric_value if not np.isnan(metric_value) else -1.0
             
@@ -56,6 +59,17 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             )
 
             results.append(pulsar_metric_dict)
+
+        # add best metric:
+        metrics_values_field = f"val {metric_name} values"
+        if metrics_values_field in metrics:
+            metrics_list = metrics[metrics_values_field]
+            best_metric = min(metrics_list)
+            results.append(dict(
+                value=best_metric,
+                name="best_val_metric"
+            ))
+
     except FileNotFoundError:
         pass
 
