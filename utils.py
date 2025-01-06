@@ -418,7 +418,7 @@ def read_memmap(filepath: str,
 
     _, file_extension = os.path.splitext(filepath)
     if file_extension == '.pt':
-        return torch.load(f=filepath, weights_only=True, mmap=True)
+        return torch.load(f=filepath, weights_only=True)
     return torch.from_file(
         filename=filepath, size=number_of_elements, dtype=dtype, shared=False
     ).reshape(shape)
