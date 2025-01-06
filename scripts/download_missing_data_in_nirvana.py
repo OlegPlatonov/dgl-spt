@@ -371,10 +371,7 @@ def main():
         print(f"For dataset {dataset_type} preprocessed spatiotemporal features are available only for {set('min-max-scaler', 'standard-scaler')} options. Setting to default 'standard-scaler'")
         numerical_features_transform_type = "standard-scaler"
 
-    if numerical_features_transform_type == "min-max-scaler":
-        remote_file_name = "min_max_scaled.memmap"        
-    elif numerical_features_transform_type == "standard-scaler":
-        remote_file_name = "standard_scaled.memmap"
+    remote_file_name = config["spatiotemporal_preprocessed_features_filepath"]
 
     remote_path = f"{yt_datadir}/{remote_file_name}"
     print(f"Loading {remote_path}")
