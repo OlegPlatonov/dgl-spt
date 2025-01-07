@@ -42,7 +42,8 @@ class Dataset:
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
-                 pyg=False):
+                 disable_features_checkpointing: bool = True, pyg=False,
+                 ):
         DATA_ROOT = 'data'
         # torch.set_default_device(device)
 
@@ -88,6 +89,7 @@ class Dataset:
             targets_for_features_transform=targets_for_features_transform,
             targets_for_features_nan_imputation_strategy=targets_for_features_nan_imputation_strategy,
             nirvana=nirvana,
+            disable_features_checkpointing=disable_features_checkpointing,
         )
 
         num_timestamps = data['num_timestamps'].item() if 'num_timestamps' in data else targets.shape[0]
@@ -102,6 +104,7 @@ class Dataset:
                 do_not_use_temporal_features=do_not_use_temporal_features,
                 num_timestamps=num_timestamps,
                 nirvana=nirvana,
+                disable_features_checkpointing=disable_features_checkpointing,
             )
         )
         spatial_features, spatial_feature_names, skip_spatial_features = (
@@ -111,6 +114,7 @@ class Dataset:
                 do_not_use_spatial_features=do_not_use_spatial_features,
                 num_nodes=num_nodes,
                 nirvana=nirvana,
+                disable_features_checkpointing=disable_features_checkpointing,
             )
         )
 
@@ -124,6 +128,7 @@ class Dataset:
                 spatiotemporal_features_local_processed_memmap_name=spatiotemporal_features_local_processed_memmap_name,
                 data_root=DATA_ROOT,
                 nirvana=nirvana,
+                disable_features_checkpointing=disable_features_checkpointing,
             )
         )
 
@@ -151,19 +156,19 @@ class Dataset:
                 'temporal', temporal_features if not skip_temporal_features else np.empty((0, 0, temporal_features.shape[2])),
                 temporal_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                train_slice, skip_temporal_features, state_handler.checkpoint_dir, nirvana
+                train_slice, skip_temporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
             ],
             [
                 'spatial', spatial_features if not skip_spatial_features else np.empty((0, 0, spatial_features.shape[2])),
                 spatial_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                train_slice, skip_spatial_features, state_handler.checkpoint_dir, nirvana
+                train_slice, skip_spatial_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
             ],
             [
                 'spatiotemporal', spatiotemporal_features if not skip_spatiotemporal_features else np.empty((0, 0, spatiotemporal_features.shape[2])),
                 spatiotemporal_feature_names, numerical_feature_names_set,
                 categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                train_slice, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana
+                train_slice, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
             ]
         ]
 
@@ -468,7 +473,8 @@ class Dataset:
         self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
 
         self.eval_max_num_timestamps_per_step = eval_max_num_predictions_per_step // self.targets_dim // num_nodes
-        copy_out_to_snapshot(state_handler.checkpoint_dir, dump=True) # dump all prepared features, transforms and targets
+        if not disable_features_checkpointing:
+            copy_out_to_snapshot(state_handler.checkpoint_dir, dump=True) # dump all prepared features, transforms and targets
 
     def get_timestamp_features_as_single_input(self, timestamp):
         past_timestamps = timestamp + self.past_timestamp_shifts_for_features
@@ -723,6 +729,7 @@ class Dataset:
             skip: bool = False,
             checkpoint_dir: Path = Path("NULL"),
             nirvana: bool = False,
+            disable_features_checkpointing: bool = True,
     ):
         numerical_features_mask = np.zeros(features.shape[2], dtype=bool)
         categorical_features_mask = np.zeros(features.shape[2], dtype=bool)
@@ -830,7 +837,7 @@ class Dataset:
             numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
 
         print(f'Processed {features_type} features.')
-        if checkpoint_dir.exists() and nirvana:  # NOTE we'll never step on this line for already preprocessed features, so there is no need to create additional conditions 
+        if checkpoint_dir.exists() and nirvana and not disable_features_checkpointing:  # NOTE we'll never step on this line for already preprocessed features, so there is no need to create additional conditions 
             print(f"Saved prepared {features_type} features for further checkpointing")
             prepared_features_file = str(checkpoint_dir / f"__{features_type}_features_prepared.npy")
             np.save(prepared_features_file, features)
@@ -838,13 +845,14 @@ class Dataset:
         return features, feature_names, numerical_features_mask
 
     def _prepare_targets_or_return_from_state(self, checkpoint_dir: Path, data, targets_for_loss_transform, train_slice,
-                                                  targets_for_features_transform, targets_for_features_nan_imputation_strategy,nirvana):
+                                                  targets_for_features_transform, targets_for_features_nan_imputation_strategy,
+                                                  nirvana, disable_features_checkpointing):
         targets_prepared_file = checkpoint_dir / "__targets_prepared.npy"
         targets_nan_mask_prepared_file = checkpoint_dir / "__targets_nan_mask_prepared.npy"
         targets_for_loss_transform_prepared_file = checkpoint_dir / "__targets_for_loss_transform_prepared.bin"
         targets_for_features_transform_prepared_file = checkpoint_dir / "__targets_for_features_transform_prepared.bin"
 
-        if targets_prepared_file.exists() and targets_nan_mask_prepared_file.exists() and nirvana:
+        if targets_prepared_file.exists() and targets_nan_mask_prepared_file.exists() and nirvana and not disable_features_checkpointing:
             print("Loading prepared targets")
             targets = np.load(str(targets_prepared_file))
             targets_nan_mask = np.load(str(targets_nan_mask_prepared_file))
@@ -914,16 +922,18 @@ class Dataset:
                 raise ValueError(f'Unsupported value for targets_for_features_nan_imputation_strategy: '
                                 f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
 
-            np.save(str(targets_prepared_file), targets)
-            np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
-            joblib.dump(targets_for_loss_transform, targets_for_loss_transform_prepared_file)
-            joblib.dump(targets_for_features_transform, targets_for_features_transform_prepared_file)
+            if not disable_features_checkpointing:
+                np.save(str(targets_prepared_file), targets)
+                np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
+                joblib.dump(targets_for_loss_transform, targets_for_loss_transform_prepared_file)
+                joblib.dump(targets_for_features_transform, targets_for_features_transform_prepared_file)
 
         return targets, targets_nan_mask, targets_for_loss_transform, targets_for_features_transform
 
-    def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int, nirvana: bool):
+    def _prepare_temporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_temporal_features: bool, num_timestamps: int, nirvana: bool,
+                                                        disable_features_checkpointing: bool):
         temporal_features_prepared_file = checkpoint_dir / "__temporal_features_prepared.npy"
-        if temporal_features_prepared_file.exists() and nirvana:
+        if temporal_features_prepared_file.exists() and nirvana and not disable_features_checkpointing:
             temporal_features = np.load(str(temporal_features_prepared_file))
             temporal_feature_names = data['temporal_node_feature_names'].tolist()
             skip_temporal_features = True
@@ -940,9 +950,10 @@ class Dataset:
 
         return temporal_features, temporal_feature_names, skip_temporal_features
 
-    def _prepare_spatial_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatial_features: bool, num_nodes: int, nirvana: bool):
+    def _prepare_spatial_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatial_features: bool, num_nodes: int, nirvana: bool,
+                                                       disable_features_checkpointing: bool):
         spatial_features_prepared_file = checkpoint_dir / "__spatial_features_prepared.npy"
-        if spatial_features_prepared_file.exists() and nirvana:
+        if spatial_features_prepared_file.exists() and nirvana and not disable_features_checkpointing:
             spatial_features = np.load(str(spatial_features_prepared_file))
             spatial_feature_names = data['spatial_node_feature_names'].tolist()
             skip_spatial_features = True
@@ -959,9 +970,10 @@ class Dataset:
         return spatial_features, spatial_feature_names, skip_spatial_features
 
     def _prepare_spatiotemporal_features_or_return_from_state(self, checkpoint_dir: Path, data, do_not_use_spatiotemporal_features: bool, num_timestamps, num_nodes,
-                                                              spatiotemporal_features_local_processed_memmap_name, data_root, nirvana: bool):
+                                                              spatiotemporal_features_local_processed_memmap_name, data_root, nirvana: bool,
+                                                              disable_features_checkpointing: bool):
         spatiotemporal_features_prepared_file = checkpoint_dir / "__spatiotemporal_features_prepared.npy"
-        if spatiotemporal_features_prepared_file.exists() and nirvana and spatiotemporal_features_local_processed_memmap_name is None:
+        if spatiotemporal_features_prepared_file.exists() and nirvana and not disable_features_checkpointing and spatiotemporal_features_local_processed_memmap_name is None:
             spatiotemporal_features = np.load(str(spatiotemporal_features_prepared_file))
             spatiotemporal_feature_names = data['spatiotemporal_node_feature_names'].tolist()
             skip_spatiotemporal_features = True

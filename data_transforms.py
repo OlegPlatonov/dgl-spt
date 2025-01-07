@@ -47,7 +47,8 @@ def _handle_zeros_in_scale(scale_array: np.ndarray) -> np.ndarray:
     """
     Handles zeros in the array which will be used as a denominator in data transforms
     """
-    return np.where(scale_array != 0.0, scale_array, 1)
+    near_zero_value = 10 * np.finfo(scale_array.dtype).eps
+    return np.where(scale_array > near_zero_value, scale_array, 1)
 
 
 class BaseDataTransform(ABC):

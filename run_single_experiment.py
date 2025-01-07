@@ -227,6 +227,8 @@ def get_args(add_name: bool = True):
     parser.add_argument('--num_threads', type=int, default=32)
     parser.add_argument('--nirvana', default=False, action='store_true',
                         help='Indicates that experiment is being run in Nirvana.')
+    parser.add_argument('--disable_features_checkpointing', default=False, action='store_true',
+                        help='Indicates whether to not to do checkpointing of features.')
     parser.add_argument('--checkpoint_steps_interval', type=int, default=1000,
                         help='Only used in Nirvana: interval for saving experiment state to $SNAPSHOT_PATH.')
     parser.add_argument('--compile', default=False, action='store_true',
@@ -518,6 +520,7 @@ def main():
         device=args.device,
         nirvana=args.nirvana,
         spatiotemporal_features_local_processed_memmap_name=args.spatiotemporal_preprocessed_features_filepath,
+        disable_features_checkpointing=args.disable_features_checkpointing,
     )
 
     if args.metric == 'RMSE':
