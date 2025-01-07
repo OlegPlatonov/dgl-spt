@@ -43,6 +43,13 @@ def torch_interp(x, xp, fp, extrapolation='constant'):
     return f
 
 
+def _handle_zeros_in_scale(scale_array: np.ndarray) -> np.ndarray:
+    """
+    Handles zeros in the array which will be used as a denominator in data transforms
+    """
+    return np.where(scale_array != 0.0, scale_array, 1)
+
+
 class BaseDataTransform(ABC):
     """
     Data transforms subclassing this abstract base class can transform both numpy arrays and torch tensors. They can
@@ -155,7 +162,7 @@ class StandardScaler(BaseDataTransform):
 class MinMaxScaler(BaseDataTransform):
     def fit(self, x):
         self.min = np.nanmin(x, axis=0)
-        self.range = np.nanmax(x, axis=0) - self.min
+        self.range = _handle_zeros_in_scale(np.nanmax(x, axis=0) - self.min)
 
     def transform(self, x):
         x -= self.min
@@ -192,7 +199,7 @@ class RobustScaler(BaseDataTransform):
     def fit(self, x):
         first_quartile, median, third_quartile = np.nanquantile(x, q=(0.25, 0.5, 0.75), axis=0, method='linear')
         self.median = median
-        self.iqr = third_quartile - first_quartile
+        self.iqr = _handle_zeros_in_scale(third_quartile - first_quartile)
 
     def transform(self, x):
         x -= self.median
