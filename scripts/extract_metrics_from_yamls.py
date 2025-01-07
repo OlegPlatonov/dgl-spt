@@ -67,7 +67,8 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             best_metric = min(metrics_list)
             results.append(dict(
                 value=best_metric,
-                name="best_val_metric"
+                name="best_val_metric",
+                **args,
             ))
 
     except FileNotFoundError:
