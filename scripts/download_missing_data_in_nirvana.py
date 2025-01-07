@@ -356,7 +356,6 @@ def main():
 
     config: dict[str, str | int] = nirvana_dl.params()
 
-    numerical_features_transform_type = config["numerical_features_transform"]
     dataset_type = config["dataset"]
 
     if dataset_type == "music":
@@ -366,10 +365,6 @@ def main():
     else:
         print(f"For dataset {dataset_type} no additional data is needed. Quitting.")
         return 0
-
-    if numerical_features_transform_type not in {"min-max-scaler", "standard-scaler"}:
-        print(f"For dataset {dataset_type} preprocessed spatiotemporal features are available only for {set('min-max-scaler', 'standard-scaler')} options. Setting to default 'standard-scaler'")
-        numerical_features_transform_type = "standard-scaler"
 
     remote_file_name = config["spatiotemporal_preprocessed_features_filepath"]
 
