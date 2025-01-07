@@ -259,6 +259,51 @@ def optimizer_step(loss, optimizer, gradscaler):
     optimizer.zero_grad()
 
 
+def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True):
+    if len(preds) < dataset.eval_max_num_timestamps_per_step:
+        # Loss can be computed on GPU in one step.
+        preds = preds.to(dataset.device)
+        if apply_transform_to_preds:
+            preds = dataset.transform_preds_for_metrics(preds)
+
+        targets = targets.to(dataset.device)
+        targets_nan_mask = targets_nan_mask.to(dataset.device)
+
+        loss = loss_fn(input=preds, target=targets, reduction='none')
+        loss[targets_nan_mask] = 0
+        loss_mean = loss.sum() / (~targets_nan_mask).sum()
+
+    else:
+        # Computing loss on GPU will be done in multiple steps.
+        preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
+        preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
+                                          shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
+
+        loss_sum = 0
+        loss_count = 0
+        for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
+            cur_preds = cur_preds.to(dataset.device)
+            if apply_transform_to_preds:
+                cur_preds = dataset.transform_preds_for_metrics(cur_preds)
+
+            cur_targets = cur_targets.to(dataset.device)
+            cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
+
+            cur_loss = loss_fn(input=cur_preds, target=cur_targets, reduction='none')
+            cur_loss[cur_targets_nan_mask] = 0
+            cur_loss_sum = cur_loss.sum()
+            cur_loss_count = (~cur_targets_nan_mask).sum()
+
+            loss_sum += cur_loss_sum
+            loss_count += cur_loss_count
+
+        loss_mean = loss_sum / loss_count
+
+    metric = loss_mean.sqrt().item() if metric == 'RMSE' else loss_mean.item()
+
+    return metric
+
+
 @torch.no_grad()
 def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=True):
     preds = []
@@ -289,39 +334,8 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
     else:
         raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    if len(preds) < dataset.eval_max_num_timestamps_per_step:
-        # Loss can be computed on GPU in one step.
-        preds = dataset.transform_preds_for_metrics(preds.to(dataset.device))
-        targets = targets.to(dataset.device)
-
-        loss = loss_fn(input=preds, target=targets, reduction='none')
-        loss[targets_nan_mask] = 0
-        loss_mean = loss.sum() / (~targets_nan_mask).sum()
-
-    else:
-        # Computing loss on GPU will be done in multiple steps.
-        preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
-        preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
-                                          shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
-
-        loss_sum = 0
-        loss_count = 0
-        for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
-            cur_preds = dataset.transform_preds_for_metrics(cur_preds.to(dataset.device))
-            cur_targets = cur_targets.to(dataset.device)
-            cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
-
-            cur_loss = loss_fn(input=cur_preds, target=cur_targets, reduction='none')
-            cur_loss[cur_targets_nan_mask] = 0
-            cur_loss_sum = cur_loss.sum()
-            cur_loss_count = (~cur_targets_nan_mask).sum()
-
-            loss_sum += cur_loss_sum
-            loss_count += cur_loss_count
-
-        loss_mean = loss_sum / loss_count
-
-    metric = loss_mean.sqrt().item() if metric == 'RMSE' else loss_mean.item()
+    metric = compute_metric(preds=preds, targets=targets, targets_nan_mask=targets_nan_mask, dataset=dataset,
+                            loss_fn=loss_fn, metric=metric, apply_transform_to_preds=True)
 
     return metric
 
