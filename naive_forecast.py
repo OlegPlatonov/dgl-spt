@@ -1,4 +1,5 @@
 import argparse
+import warnings
 from pathlib import Path
 import torch
 import numpy as np
@@ -111,7 +112,15 @@ def main():
                 train_targets = dataset.targets[dataset.all_train_timestamps]
                 train_targets_nan_mask = dataset.targets_nan_mask[dataset.all_train_timestamps]
                 known_train_targets = train_targets[~train_targets_nan_mask]
-                const = known_train_targets.mean() if str_value == 'mean' else known_train_targets.median()
+                if str_value == 'mean':
+                    const = known_train_targets.mean()
+                elif str_value == 'median':
+                    const = known_train_targets.median()
+                else:
+                    raise ValueError(
+                        f'Unsupported value for argument constants: {str_value}. Supported values are: '
+                        f'"mean", "median", any float.'
+                    )
 
             val_preds = torch.full_like(val_targets, fill_value=const)
             test_preds = torch.full_like(test_targets, fill_value=const)
@@ -128,7 +137,20 @@ def main():
         train_targets_nan_mask = dataset.targets_nan_mask[dataset.all_train_timestamps].numpy()
         train_targets[train_targets_nan_mask] = np.nan
         for str_value in args.per_node_constants:
-            consts = np.nanmean(train_targets, axis=0) if str_value == 'mean' else np.nanmedian(train_targets, axis=0)
+            if str_value == 'mean':
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', message='Mean of empty slice')
+                    consts = np.nanmean(train_targets, axis=0)
+            elif str_value == 'median':
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', message='All-NaN slice encountered')
+                    consts = np.nanmedian(train_targets, axis=0)
+            else:
+                raise ValueError(
+                    f'Unsupported value for argument per_node_constants: {str_value}. Supported values are: '
+                    f'"mean", "median".'
+                )
+
             consts = torch.from_numpy(consts)[None, :, None]
             val_preds = consts.expand_as(val_targets)
             test_preds = consts.expand_as(test_targets)
