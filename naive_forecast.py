@@ -113,17 +113,17 @@ def main():
                 train_targets_nan_mask = dataset.targets_nan_mask[dataset.all_train_timestamps]
                 known_train_targets = train_targets[~train_targets_nan_mask]
                 if str_value == 'mean':
-                    const = known_train_targets.mean()
+                    const = known_train_targets.mean().item()
                 elif str_value == 'median':
-                    const = known_train_targets.median()
+                    const = known_train_targets.median().item()
                 else:
                     raise ValueError(
                         f'Unsupported value for argument constants: {str_value}. Supported values are: '
                         f'"mean", "median", any float.'
                     )
 
-            val_preds = torch.full_like(val_targets, fill_value=const)
-            test_preds = torch.full_like(test_targets, fill_value=const)
+            val_preds = torch.tensor(const).expand_as(val_targets)
+            test_preds = torch.tensor(const).expand_as(test_targets)
 
             print_header = f'Constant forecast with value {const:.4f}'
             print_header = print_header + f' (train target {str_value})' if str_value else print_header
