@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 import torch
+import numpy as np
 from torch.nn import functional as F
 from dataset import Dataset
 from run_single_experiment import compute_metric
@@ -20,10 +21,12 @@ def get_args():
 
     # These arguments define the forecast methods to be used.
     parser.add_argument('--methods', nargs='+', type=str, required=True,
-                        choices=['constant', 'prev-latest', 'prev-periodic'])
+                        choices=['constant', 'per-node-constant', 'prev-latest', 'prev-periodic'])
     parser.add_argument('--constants', nargs='+', type=lambda x: x if x in ('mean', 'median') else int(x),
                         help='Used for "constant" forecast method. Each value of this argument should be '
                              'either an int or one of the strings ["mean", "median"].')
+    parser.add_argument('--per-node-constants', nargs='+', type=str, choices=['mean', 'median'],
+                        help='Used for "per-node-constant" forecast method.')
     parser.add_argument('--periods', nargs='+', type=int, help='Used for "prev-periodic" forecast method.')
 
     parser.add_argument('--eval_max_num_predictions_per_step', type=int, default=10_000_000_000)
@@ -33,14 +36,20 @@ def get_args():
 
     if 'constant' in args.methods and args.constants is None:
         raise ValueError(
-            'If "constant" is one of the values of argument methods, than at least one value for argument constant '
-            'should be provided.'
+            'If "constant" is one of the values of argument methods, than at least one value for argument '
+            'constants should be provided.'
+        )
+
+    if 'per-node-constant' in args.methods and args.per_node_constants is None:
+        raise ValueError(
+            'If "per-node-constant" is one of the values of argument methods, than at least one value for argument '
+            'per-node-constants should be provided.'
         )
 
     if 'prev-periodic' in args.methods and args.periods is None:
         raise ValueError(
-            'If "prev-periodic" is one of the values of argument methods, than at least one value for argument periods '
-            'should be provided.'
+            'If "prev-periodic" is one of the values of argument methods, than at least one value for argument '
+            'periods should be provided.'
         )
 
     if 'prev-periodic' in args.methods:
@@ -109,6 +118,22 @@ def main():
 
             print_header = f'Constant forecast with value {const:.4f}'
             print_header = print_header + f' (train target {str_value})' if str_value else print_header
+            compute_and_print_metrics(val_preds=val_preds, test_preds=test_preds, val_targets=val_targets,
+                                      test_targets=test_targets, val_targets_nan_mask=val_targets_nan_mask,
+                                      test_targets_nan_mask=test_targets_nan_mask, dataset=dataset, loss_fn=loss_fn,
+                                      metric=args.metric, print_header=print_header)
+
+    if 'per-node-constant' in args.methods:
+        train_targets = dataset.targets[dataset.all_train_timestamps].numpy().copy()
+        train_targets_nan_mask = dataset.targets_nan_mask[dataset.all_train_timestamps].numpy()
+        train_targets[train_targets_nan_mask] = np.nan
+        for str_value in args.per_node_constants:
+            consts = np.nanmean(train_targets, axis=0) if str_value == 'mean' else np.nanmedian(train_targets, axis=0)
+            consts = torch.from_numpy(consts)[None, :, None]
+            val_preds = consts.expand_as(val_targets)
+            test_preds = consts.expand_as(test_targets)
+
+            print_header = f'Per node constant forecast with per node train target {str_value}'
             compute_and_print_metrics(val_preds=val_preds, test_preds=test_preds, val_targets=val_targets,
                                       test_targets=test_targets, val_targets_nan_mask=val_targets_nan_mask,
                                       test_targets_nan_mask=test_targets_nan_mask, dataset=dataset, loss_fn=loss_fn,
