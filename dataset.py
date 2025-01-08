@@ -40,7 +40,7 @@ class Dataset:
                  time_based_features_types=('one-hot', 'sin-cos'), time_based_features_periods=('auto',),
                  use_deepwalk_node_embeddings=False, initialize_learnable_node_embeddings_with_deepwalk=False,
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
-                 train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=10_000_000_000,
+                 train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=1_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
                  disable_features_checkpointing: bool = True, pyg=False,
                  ):

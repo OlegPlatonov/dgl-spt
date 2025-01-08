@@ -216,7 +216,7 @@ def get_args(add_name: bool = True):
     parser.add_argument('--num_accumulation_steps', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=1000,
                         help='Evaluate after this many optimization steps. If None, only evaluate at the end of epoch.')
-    parser.add_argument('--eval_max_num_predictions_per_step', type=int, default=10_000_000_000,
+    parser.add_argument('--eval_max_num_predictions_per_step', type=int, default=1_000_000_000,
                         help='The maximum number of predictions that will be put on GPU for loss computation during '
                              'evaluation. Decrease this value if you face GPU OOM issues during evaluation.')
 

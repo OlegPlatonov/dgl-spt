@@ -29,7 +29,7 @@ def get_args():
                         help='Used for "per-node-constant" forecast method.')
     parser.add_argument('--periods', nargs='+', type=int, help='Used for "prev-periodic" forecast method.')
 
-    parser.add_argument('--eval_max_num_predictions_per_step', type=int, default=10_000_000_000)
+    parser.add_argument('--eval_max_num_predictions_per_step', type=int, default=1_000_000_000)
     parser.add_argument('--device', type=str, default='cuda:0')
 
     args = parser.parse_args()
