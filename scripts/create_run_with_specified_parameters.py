@@ -64,6 +64,9 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
 
     for option_name, option_value in params_flattened_one_instance.items():
         print(f"Option: {repr(option_name)}, param: {repr(option_value)}", file=sys.stderr)
+        if option_name == "time_based_features_types" and option_value == "no_encodings":  # it signals not to use time-based encodings, we need to explicitly specify it as an empty argument
+            option_value = "  "
+
         if option_value == "None" or option_value is None:
             continue
 
@@ -74,6 +77,7 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
                 continue
         else:
             param_string = f"--{option_name} {option_value}"
+
         launch_script_string_container.append(param_string)
 
     launch_script_string: str = " ".join(launch_script_string_container)
