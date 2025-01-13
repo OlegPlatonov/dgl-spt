@@ -11,6 +11,9 @@ from dataset import Dataset
 from models import ModelRegistry
 from utils import Logger, get_parameter_groups, DummyHandler, NirvanaStateHandler, StateHandler
 
+torch.set_float32_matmul_precision('high')
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
@@ -155,7 +158,7 @@ def get_args(add_name: bool = True):
 
     # Model type selection.
     parser.add_argument('--model_class', type=str, default='SingleInputGNN',
-                        choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN'])
+                        choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN', 'BaselineModel'])
     parser.add_argument('--neighborhood_aggregation', type=str, default='MeanAggr',
                         choices=['MeanAggr', 'MaxAggr', 'GCNAggr', 'AttnGATAggr', 'AttnTrfAggr'],
                         help='Graph neighborhood aggregation (aka message passing) function for GNNs. '
@@ -174,12 +177,30 @@ def get_args(add_name: bool = True):
                              'Not used if model_class is LinearModel.')
 
     # Model architecture hyperparameters.
+
+    # baseline parameters were moved separately from main parameters. Please don't change it as it's going on right now in nirvana
+    parser.add_argument('--baseline_name', type=str, default='DCRNN',
+                        choices=['DCRNN', 'EGCN', 'GWN', 'GGN', 'GRUGCN'])
+    parser.add_argument('--num_spatiotemporal_blocks', type=int, default=2,
+                        help='Number of spatiotemporal blocks in time-and-space baseline models.')
+    parser.add_argument('--num_temporal_blocks', type=int, default=2,
+                        help='Number of temporal blocks in time-then-space baseline models.')
+    parser.add_argument('--num_spatial_blocks', type=int, default=2,
+                        help='Number of spatial blocks in time-then-space baseline models.')
     parser.add_argument('--num_residual_blocks', type=int, default=2,
                         help='Number of residual blocks, where each residual block consists of the following sequence '
                              'of layers: normalization, sequence encoder (if model_class is SequenceInputGNN), '
                              'graph neighborhood aggregation (if model_class is SingleInputGNN or SequenceInputGNN), '
                              'two-layer MLP. '
                              'Not used if model_class is LinearModel.')
+    parser.add_argument('--temporal_kernel_size', type=int, default=3,
+                        help='Kernel size for temporal convolutions.')
+    parser.add_argument('--temporal_dilation', type=int, default=2,
+                        help='Dilation for temporal convolutions.')
+    parser.add_argument('--spatial_kernel_size', type=int, default=2,
+                        help='Kernel size for spatial convolutions.')
+
+    # Common parameters (not baselines-exclusively)
     parser.add_argument('--hidden_dim', type=int, default=512,
                         help='Not used if model_class is LinearModel.')
     parser.add_argument('--neighborhood_aggr_attn_num_heads', type=int, default=4,
@@ -521,6 +542,7 @@ def main():
         nirvana=args.nirvana,
         spatiotemporal_features_local_processed_memmap_name=args.spatiotemporal_preprocessed_features_filepath,
         disable_features_checkpointing=args.disable_features_checkpointing,
+        pyg=args.model_class == "BaselineModel" and args.baseline_name in {'DCRNN', 'EGCN', 'GWN', 'GGN', 'GRUGCN'},  # NOTE decide whether to use pyg on the fly based on the model implementation
     )
 
     if args.metric == 'RMSE':
@@ -532,15 +554,22 @@ def main():
 
     for run in range(state_handler.num_runs_completed + 1, args.num_runs + 1):
         model = Model(
+            baseline_name=args.baseline_name,
             neighborhood_aggregation_name=args.neighborhood_aggregation,
             neighborhood_aggregation_sep=not args.do_not_separate_ego_node_representation,
             sequence_encoder_name=args.sequence_encoder,
             normalization_name=args.normalization,
-            num_edge_types=len(dataset.graph.etypes),
+            num_edge_types=1 if dataset.use_pyg_graph else len(dataset.graph.etypes),
             num_residual_blocks=args.num_residual_blocks,
+            num_spatiotemporal_blocks=args.num_spatiotemporal_blocks,
+            num_temporal_blocks=args.num_temporal_blocks,
+            num_spatial_blocks=args.num_spatial_blocks,
             features_dim=dataset.features_dim,
             hidden_dim=args.hidden_dim,
             output_dim=dataset.targets_dim,
+            temporal_kernel_size=args.temporal_kernel_size,
+            temporal_dilation=args.temporal_dilation,
+            spatial_kernel_size=args.spatial_kernel_size,
             neighborhood_aggr_attn_num_heads=args.neighborhood_aggr_attn_num_heads,
             seq_encoder_num_layers=args.seq_encoder_num_layers,
             seq_encoder_rnn_type_name=args.seq_encoder_rnn_type,
@@ -549,7 +578,7 @@ def main():
             seq_encoder_seq_len=args.direct_lookback_num_steps,
             dropout=args.dropout,
             use_learnable_node_embeddings=args.use_learnable_node_embeddings,
-            num_nodes=dataset.graph.num_nodes(),
+            num_nodes=dataset.num_nodes,  # NOTE dataset already has attribute for number of nodes, there is no need to call a graph object for that
             learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
             initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
             deepwalk_node_embeddings=dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
