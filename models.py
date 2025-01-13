@@ -9,11 +9,13 @@ If the model takes as input information about a sequence of timestamps, that is,
 """
 
 from abc import ABC, ABCMeta
-import torch
-from torch import nn
-from modules import (FeaturesPreparatorForDeepModels, ResidualModulesWrapper, FeedForwardModule,
-                     NEIGHBORHOOD_AGGREGATION_MODULES, SEQUENCE_ENCODER_MODULES, NORMALIZATION_MODULES)
 
+import torch
+import torch.nn as nn
+
+from modules import (FeaturesPreparatorForDeepModels, ResidualModulesWrapper, FeedForwardModule,
+                     NEIGHBORHOOD_AGGREGATION_MODULES, SEQUENCE_ENCODER_MODULES, NORMALIZATION_MODULES,
+                     BASELINE_ADAPTERS)
 
 class ModelRegistry(ABCMeta):
     registry = {}
@@ -239,7 +241,7 @@ class SequenceInputGNN(SequenceInputModel):
     def __init__(self, sequence_encoder_name, neighborhood_aggregation_name, neighborhood_aggregation_sep,
                  normalization_name, num_edge_types, num_residual_blocks, features_dim, hidden_dim, output_dim,
                  neighborhood_aggr_attn_num_heads, seq_encoder_num_layers, seq_encoder_rnn_type_name,
-                 seq_encoder_attn_num_heads, seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
+                 kernel_size, dilation, seq_encoder_attn_num_heads, seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
                  use_plr_for_numerical_features, numerical_features_mask, plr_numerical_features_frequencies_dim,
@@ -280,6 +282,7 @@ class SequenceInputGNN(SequenceInputModel):
 
         self.input_linear = nn.Linear(in_features=self.features_preparator.output_dim, out_features=hidden_dim)
         self.input_sequence_encoder = SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name,
+                                                            kernel_size=kernel_size, dilation=dilation,
                                                             num_layers=seq_encoder_num_layers, dim=hidden_dim,
                                                             num_heads=seq_encoder_attn_num_heads,
                                                             bidir_attn=seq_encoder_bidir_attn,
@@ -292,8 +295,8 @@ class SequenceInputGNN(SequenceInputModel):
             residual_module = ResidualModulesWrapper(
                 modules=[
                     NormalizationModule(hidden_dim),
-                    SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name, num_layers=seq_encoder_num_layers,
-                                          dim=hidden_dim, num_heads=seq_encoder_attn_num_heads,
+                    SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name, kernel_size=kernel_size, dilation=dilation,
+                                          num_layers=seq_encoder_num_layers, dim=hidden_dim, num_heads=seq_encoder_attn_num_heads,
                                           bidir_attn=seq_encoder_bidir_attn, seq_len=seq_encoder_seq_len,
                                           dropout=dropout),
                     NeighborhoodAggregationModule(dim=hidden_dim, num_heads=neighborhood_aggr_attn_num_heads,
@@ -327,5 +330,74 @@ class SequenceInputGNN(SequenceInputModel):
 
         x = self.output_normalization(x)
         x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class BaselineModel(SequenceInputModel):
+    def __init__(self, baseline_name, normalization_name, num_spatiotemporal_blocks, num_temporal_blocks, num_spatial_blocks,
+                 features_dim, hidden_dim, output_dim, use_learnable_node_embeddings, num_nodes,
+                 learnable_node_embeddings_dim, temporal_kernel_size, temporal_dilation, spatial_kernel_size,
+                 seq_encoder_seq_len, dropout, initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
+                 use_plr_for_numerical_features, numerical_features_mask, plr_numerical_features_frequencies_dim,
+                 plr_numerical_features_frequencies_scale, plr_numerical_features_embedding_dim,
+                 plr_numerical_features_shared_linear, plr_numerical_features_shared_frequencies,
+                 use_plr_for_past_targets, past_targets_mask, plr_past_targets_frequencies_dim,
+                 plr_past_targets_frequencies_scale, plr_past_targets_embedding_dim,
+                 plr_past_targets_shared_linear, plr_past_targets_shared_frequencies,
+                 **kwargs):
+        super().__init__()
+
+        BaselineAdapter = BASELINE_ADAPTERS[baseline_name]
+
+        self.features_preparator = FeaturesPreparatorForDeepModels(
+            features_dim=features_dim,
+            use_learnable_node_embeddings=use_learnable_node_embeddings,
+            num_nodes=num_nodes,
+            learnable_node_embeddings_dim=learnable_node_embeddings_dim,
+            initialize_learnable_node_embeddings_with_deepwalk=initialize_learnable_node_embeddings_with_deepwalk,
+            deepwalk_node_embeddings=deepwalk_node_embeddings,
+            use_plr_for_numerical_features=use_plr_for_numerical_features,
+            numerical_features_mask=numerical_features_mask,
+            plr_numerical_features_frequencies_dim=plr_numerical_features_frequencies_dim,
+            plr_numerical_features_frequencies_scale=plr_numerical_features_frequencies_scale,
+            plr_numerical_features_embedding_dim=plr_numerical_features_embedding_dim,
+            plr_numerical_features_shared_linear=plr_numerical_features_shared_linear,
+            plr_numerical_features_shared_frequencies=plr_numerical_features_shared_frequencies,
+            use_plr_for_past_targets=use_plr_for_past_targets,
+            past_targets_mask=past_targets_mask,
+            plr_past_targets_frequencies_dim=plr_past_targets_frequencies_dim,
+            plr_past_targets_frequencies_scale=plr_past_targets_frequencies_scale,
+            plr_past_targets_embedding_dim=plr_past_targets_embedding_dim,
+            plr_past_targets_shared_linear=plr_past_targets_shared_linear,
+            plr_past_targets_shared_frequencies=plr_past_targets_shared_frequencies
+        )
+
+        self.input_linear = nn.Linear(in_features=self.features_preparator.output_dim, out_features=hidden_dim)
+        self.dropout = nn.Dropout(p=dropout)
+        self.act = nn.GELU()
+
+        self.baseline_adapter = BaselineAdapter(num_spatiotemporal_blocks=num_spatiotemporal_blocks,
+                                                num_temporal_blocks=num_temporal_blocks,
+                                                num_spatial_blocks=num_spatial_blocks,
+                                                hidden_dim=hidden_dim,
+                                                output_dim=output_dim,
+                                                normalization_name=normalization_name,
+                                                temporal_kernel_size=temporal_kernel_size,
+                                                temporal_dilation=temporal_dilation,
+                                                spatial_kernel_size=spatial_kernel_size,
+                                                seq_length=seq_encoder_seq_len,
+                                                dropout=dropout)
+
+    def forward(self, graph, x):
+        edge_index = graph  # here we explicitly tell that graph is represented as edge index instead of other objects
+                            # but the signature must remain with `graph` argument
+        x = self.features_preparator(x)
+
+        x = self.input_linear(x)
+        x = self.dropout(x)
+        x = self.act(x)
+
+        x = self.baseline_adapter(x, edge_index)
 
         return x
