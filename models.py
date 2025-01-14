@@ -241,7 +241,7 @@ class SequenceInputGNN(SequenceInputModel):
     def __init__(self, sequence_encoder_name, neighborhood_aggregation_name, neighborhood_aggregation_sep,
                  normalization_name, num_edge_types, num_residual_blocks, features_dim, hidden_dim, output_dim,
                  neighborhood_aggr_attn_num_heads, seq_encoder_num_layers, seq_encoder_rnn_type_name,
-                 kernel_size, dilation, seq_encoder_attn_num_heads, seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
+                 temporal_kernel_size, temporal_dilation, seq_encoder_attn_num_heads, seq_encoder_bidir_attn, seq_encoder_seq_len, dropout,
                  use_learnable_node_embeddings, num_nodes, learnable_node_embeddings_dim,
                  initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
                  use_plr_for_numerical_features, numerical_features_mask, plr_numerical_features_frequencies_dim,
@@ -282,7 +282,7 @@ class SequenceInputGNN(SequenceInputModel):
 
         self.input_linear = nn.Linear(in_features=self.features_preparator.output_dim, out_features=hidden_dim)
         self.input_sequence_encoder = SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name,
-                                                            kernel_size=kernel_size, dilation=dilation,
+                                                            kernel_size=temporal_kernel_size, dilation=temporal_dilation,
                                                             num_layers=seq_encoder_num_layers, dim=hidden_dim,
                                                             num_heads=seq_encoder_attn_num_heads,
                                                             bidir_attn=seq_encoder_bidir_attn,
@@ -295,7 +295,7 @@ class SequenceInputGNN(SequenceInputModel):
             residual_module = ResidualModulesWrapper(
                 modules=[
                     NormalizationModule(hidden_dim),
-                    SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name, kernel_size=kernel_size, dilation=dilation,
+                    SequenceEncoderModule(rnn_type_name=seq_encoder_rnn_type_name, kernel_size=temporal_kernel_size, dilation=temporal_dilation,
                                           num_layers=seq_encoder_num_layers, dim=hidden_dim, num_heads=seq_encoder_attn_num_heads,
                                           bidir_attn=seq_encoder_bidir_attn, seq_len=seq_encoder_seq_len,
                                           dropout=dropout),

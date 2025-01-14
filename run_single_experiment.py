@@ -177,8 +177,8 @@ def get_args(add_name: bool = True):
                              'Not used if model_class is LinearModel.')
 
     # Model architecture hyperparameters.
-
     # baseline parameters were moved separately from main parameters. Please don't change it as it's going on right now in nirvana
+    # temporal_* are used both in baselines and SequenceInputGNN models
     parser.add_argument('--baseline_name', type=str, default='DCRNN',
                         choices=['DCRNN', 'EGCN', 'GWN', 'GGN', 'GRUGCN'])
     parser.add_argument('--num_spatiotemporal_blocks', type=int, default=2,
