@@ -262,9 +262,9 @@ class Dataset:
         if pyg:
             # Convert DGL graphs to PyG edge indices (which are simply torch tensors storing edges).
             graph = torch.stack(graph.edges(), axis=0)
-            train_batched_graph = torch.stack(train_batched_graph.edges(), axis=0)
+            train_batched_graph = torch.stack(train_batched_graph.edges(), axis=0).long()  # torch_scatter needs int64 instead of int32
             if eval_batch_size is not None and eval_batch_size != train_batch_size:
-                eval_batched_graph = torch.stack(eval_batched_graph.edges(), axis=0)
+                eval_batched_graph = torch.stack(eval_batched_graph.edges(), axis=0).long()  # torch_scatter needs int64 instead of int32
 
         # We do not need the original data anymore.
         del data
@@ -400,6 +400,7 @@ class Dataset:
 
         # STORE EVERYTHING WE MIGHT NEED
 
+        self.use_pyg_graph = pyg
         self.name = name
         self.provide_sequence_inputs = provide_sequnce_inputs
         self.device = device
@@ -802,7 +803,16 @@ class Dataset:
 
             categorical_features_orig_shape = categorical_features.shape
             categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
-            one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
+
+            # manage old sklearn versions (for some porto-layers in Nirvana):
+            if hasattr(OneHotEncoder, "sparse_output"):
+                ohe_options = dict(sparse_output=False, dtype=np.float32)
+            elif hasattr(OneHotEncoder, "sparse"):
+                ohe_options = dict(sparse=False, dtype=np.float32)
+            else:
+                ohe_options = dict(sparse=False, dtype=np.float32)
+
+            one_hot_encoder = OneHotEncoder(**ohe_options)
             categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
             categorical_features_encoded = categorical_features_encoded.reshape(
                 *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
