@@ -1,10 +1,15 @@
 from inspect import signature
+
 import torch
-from torch import nn
+import torch.nn as nn
+import torch.nn.functional as F
+import tsl.nn as stnn
 import dgl
+
 from dgl import ops
 from plr_embeddings import PLREmbeddings
 from utils import _check_dim_and_num_heads_consistency
+
 
 
 class ResidualModulesWrapper(nn.Module):
@@ -220,6 +225,43 @@ class RNNSequenceEncoderModule(nn.Module):
         return x
 
 
+class CausalTCNBlock(nn.Module):
+    def __init__(self, dim, kernel_size, dilation=1, dropout=0.0):
+        super().__init__()
+        self.conv = nn.Conv1d(in_channels=dim, out_channels=dim, kernel_size=kernel_size,
+                                padding=(kernel_size - 1) * dilation, dilation=dilation)
+        
+        self.dropout = nn.Dropout(p=dropout)
+        self.activation = nn.GELU()
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x[:, :, :-self.conv.padding[0]]
+        x = self.dropout(x)
+        x = self.activation(x)
+        return x
+
+
+class TCNSequenceEncoderModule(nn.Module):
+    '''See here for details: https://discuss.pytorch.org/t/causal-convolution/3456.'''
+    
+    def __init__(self, num_layers, dim, kernel_size, dilation=1, dropout=0.0, **kwargs):
+        super().__init__()
+
+        self.blocks = nn.Sequential(*[
+            CausalTCNBlock(dim=dim, kernel_size=kernel_size, dilation=dilation, dropout=dropout)
+            for _ in range(num_layers)
+        ])
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        
+        for block in self.blocks:
+            x = block(x)
+        
+        return x.permute(0, 2, 1)
+
+
 class TransformerSequenceEncoderModule(nn.Module):
     def __init__(self, num_layers, dim, num_heads, seq_len, bidir_attn=False, dropout=0, **kwargs):
         super().__init__()
@@ -355,6 +397,7 @@ NEIGHBORHOOD_AGGREGATION_MODULES = {
 
 SEQUENCE_ENCODER_MODULES = {
     'RNN': RNNSequenceEncoderModule,
+    'TCN': TCNSequenceEncoderModule,
     'Transformer': TransformerSequenceEncoderModule
 }
 
@@ -362,4 +405,232 @@ NORMALIZATION_MODULES = {
     'none': nn.Identity,
     'LayerNorm': nn.LayerNorm,
     'BatchNorm': nn.BatchNorm1d
+}
+
+
+class DCRNNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name, **kwargs):
+        super().__init__()
+        self.encoder = stnn.encoders.DCRNN(input_size=hidden_dim,
+                                           hidden_size=hidden_dim,
+                                           n_layers=num_spatiotemporal_blocks)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+    
+    def forward(self, x, edge_index):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x, _ = self.encoder(x, edge_index, None)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class EGCNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name, **kwargs):
+        super().__init__()
+        self.encoder = stnn.encoders.EvolveGCN(input_size=hidden_dim,
+                                               hidden_size=hidden_dim,
+                                               n_layers=num_spatiotemporal_blocks,
+                                               norm='gcn')
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim)
+        self.output_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
+
+    def forward(self, x, edge_index):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.encoder(x, edge_index, None)
+        x = x.squeeze()
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class GWNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim,
+                 normalization_name, temporal_kernel_size, temporal_dilation,
+                 spatial_kernel_size, dropout, **kwargs):
+        super().__init__()
+
+        self.temporal_blocks = nn.ModuleList()
+        self.spatial_blocks = nn.ModuleList()
+        self.skip_connection_blocks = nn.ModuleList()
+
+        dilation_mod = 2
+        receptive_field = 1
+
+        for block_idx in range(num_spatiotemporal_blocks):
+            d = temporal_dilation ** (block_idx % dilation_mod)
+            temporal_block = stnn.blocks.encoders.TemporalConvNet(input_channels=hidden_dim,
+                                                                  hidden_channels=hidden_dim,
+                                                                  kernel_size=temporal_kernel_size,
+                                                                  dilation=d,
+                                                                  exponential_dilation=False,
+                                                                  n_layers=1,
+                                                                  causal_padding=False,
+                                                                  gated=True)
+
+            spatial_block = stnn.layers.graph_convs.DiffConv(in_channels=hidden_dim,
+                                                             out_channels=hidden_dim,
+                                                             k=spatial_kernel_size)
+
+            skip_connection_block = nn.Linear(hidden_dim, hidden_dim)
+
+            self.temporal_blocks.append(temporal_block)
+            self.spatial_blocks.append(spatial_block)
+            self.skip_connection_blocks.append(skip_connection_block)
+
+            receptive_field += d * (temporal_kernel_size - 1)
+
+        self.dropout = nn.Dropout(p=dropout)
+        self.receptive_field = receptive_field
+        self.num_blocks = num_spatiotemporal_blocks
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+
+    def forward(self, x, edge_index):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+
+        if self.receptive_field > x.shape[1]:
+            x = F.pad(x, (0, 0, 0, 0, self.receptive_field - x.shape[1], 0))
+
+        out = torch.zeros(1, x.shape[1], 1, 1, device=x.device)
+
+        for i in range(self.num_blocks):
+            res = x
+            x = self.temporal_blocks[i](x)
+            # NOTE: skip connection is originally applied here
+            # out = self.skip_connection_blocks[i](x) + out[:, -x.shape[1]:]
+            x = self.spatial_blocks[i](x, edge_index)
+            x = self.dropout(x)
+            x = x + res[:, -x.shape[1]:]
+            out = self.skip_connection_blocks[i](x) + out[:, -x.shape[1]:]
+
+        x = out
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class GGNAdapter(nn.Module):
+    def __init__(self, num_temporal_blocks, num_spatial_blocks,
+                 hidden_dim, output_dim, normalization_name, seq_length, **kwargs):
+        super().__init__()
+
+        self.input_encoder = nn.Linear(hidden_dim * seq_length, hidden_dim)
+
+        self.temporal_blocks = nn.ModuleList()
+        self.spatial_blocks = nn.ModuleList()
+
+        for _ in range(num_temporal_blocks):
+            temporal_block = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+            self.temporal_blocks.append(temporal_block)
+        
+        for _ in range(num_spatial_blocks):
+            spatial_block = stnn.layers.graph_convs.GatedGraphNetwork(hidden_dim, hidden_dim)
+            self.spatial_blocks.append(spatial_block)
+
+        self.num_temporal_blocks = num_temporal_blocks
+        self.num_spatial_blocks = num_spatial_blocks
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim)
+        self.output_linear = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x, edge_index):
+        x = x.unsqueeze(0)
+
+        x = torch.flatten(x, start_dim=2)
+        x = self.input_encoder(x)
+
+        for temporal_block in self.temporal_blocks:
+            x = temporal_block(x)
+
+        for spatial_block in self.spatial_blocks:
+            x = spatial_block(x, edge_index)
+
+        x = x.squeeze()
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class GRUGCNAdapter(nn.Module):
+    def __init__(self, num_temporal_blocks, num_spatial_blocks,
+                 hidden_dim, output_dim, normalization_name, **kwargs):
+        super().__init__()
+
+        self.input_encoder = stnn.blocks.encoders.RNN(input_size=hidden_dim,
+                                                      hidden_size=hidden_dim,
+                                                      n_layers=num_temporal_blocks,
+                                                      return_only_last_state=True,
+                                                      cell='gru')
+
+        self.spatial_blocks = nn.ModuleList()
+        for _ in range(num_spatial_blocks):
+            spatial_block = stnn.layers.graph_convs.GraphConv(input_size=hidden_dim,
+                                                              output_size=hidden_dim,
+                                                              root_weight=False,
+                                                              activation='relu')
+            
+            self.spatial_blocks.append(spatial_block)
+
+        self.skip_connection_block = nn.Linear(hidden_dim, hidden_dim)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim)
+        self.output_linear = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x, edge_index):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+
+        x = self.input_encoder(x)
+        out = x
+
+        for layer in self.spatial_blocks:
+            out = layer(out, edge_index)
+
+        x = out + self.skip_connection_block(x)
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        x = x.squeeze()
+
+        return x
+
+
+BASELINE_ADAPTERS = {
+    'DCRNN': DCRNNAdapter,
+    'EGCN': EGCNAdapter,
+    'GWN': GWNAdapter,
+    'GGN': GGNAdapter,
+    'GRUGCN': GRUGCNAdapter,
 }
