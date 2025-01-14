@@ -807,8 +807,6 @@ class Dataset:
             # manage old sklearn versions (for some porto-layers in Nirvana):
             if hasattr(OneHotEncoder, "sparse_output"):
                 ohe_options = dict(sparse_output=False, dtype=np.float32)
-            elif hasattr(OneHotEncoder, "sparse"):
-                ohe_options = dict(sparse=False, dtype=np.float32)
             else:
                 ohe_options = dict(sparse=False, dtype=np.float32)
 
