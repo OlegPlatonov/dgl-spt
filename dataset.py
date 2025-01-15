@@ -804,13 +804,7 @@ class Dataset:
             categorical_features_orig_shape = categorical_features.shape
             categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
 
-            # manage old sklearn versions (for some porto-layers in Nirvana):
-            if hasattr(OneHotEncoder, "sparse_output"):
-                ohe_options = dict(sparse_output=False, dtype=np.float32)
-            else:
-                ohe_options = dict(sparse=False, dtype=np.float32)
-
-            one_hot_encoder = OneHotEncoder(**ohe_options)
+            one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
             categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
             categorical_features_encoded = categorical_features_encoded.reshape(
                 *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
