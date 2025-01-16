@@ -1,5 +1,9 @@
 FROM registry.yandex.net/pydl/nvidia-pytorch:24.09.0
-LABEL version="1.2" org.opencontainers.image.authors="mirotvorez00@gmail.com" description="Container with DL libs for GraphML and more"
+
+
+LABEL version="1.4"
+LABEL org.opencontainers.image.authors="mirotvorez00@gmail.com"
+LABEL description="Container with DL libs for GraphML and more"
 
 RUN apt-get update && apt-get install -y --no-install-recommends --allow-unauthenticated \
       build-essential \

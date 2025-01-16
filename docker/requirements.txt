@@ -85,3 +85,6 @@ pandas==2.0.1
 
 scikit-learn
 scipy
+
+jupyter
+ipywidgets

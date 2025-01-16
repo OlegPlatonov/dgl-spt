@@ -71,7 +71,7 @@ def create_one_run(params_flattened_one_instance: Dict[str, str]):
             continue
 
         if option_name in STORE_TRUE_ARGS:  # this option value is true and it;s passed as true
-            if option_value == "True":
+            if option_value == "True" or option_value == True:  # it must remain with this explicit option as we want to distinguish it from other values!
                 param_string: str = f"--{option_name}"
             else:
                 continue
