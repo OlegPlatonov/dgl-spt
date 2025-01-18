@@ -5,12 +5,13 @@ from pathlib import Path
 import numpy as np
 import torch
 from nirvana_utils import copy_snapshot_to_out, copy_out_to_snapshot
-
+from time import perf_counter
 
 TorchStateDict = tp.Mapping[str, torch.FloatTensor]
 
 
 class Logger:
+    
     def __init__(self, args, start_from_scratch=True):
         if args.dataset.endswith('.npz'):
             dataset_name = os.path.splitext(os.path.basename(args.dataset))[0].replace('_', '-')
@@ -28,6 +29,7 @@ class Logger:
         self.cur_run = None
         self.in_nirvana = args.nirvana
 
+
         if start_from_scratch:
             self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset_name=dataset_name, experiment_name=args.name)
 
@@ -35,11 +37,15 @@ class Logger:
             with open(os.path.join(self.save_dir, 'args.yaml'), 'w') as file:
                 yaml.safe_dump(vars(args), file, sort_keys=False)
             self.current_run_already_started: bool | None = False
+            self.elapsed_time = 0
         else:
             self.save_dir = None  # Will be set during restarting
             self.current_run_already_started = None
+            self.elapsed_time = None
 
-    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started):
+        self._start_time = perf_counter()
+
+    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started, elapsed_time):
         self.val_metrics = val_metrics
         self.test_metrics = test_metrics
         self.cur_run = cur_run
@@ -47,9 +53,17 @@ class Logger:
         self.best_epochs = best_epochs
         self.save_dir = save_dir
         self.current_run_already_started = current_run_already_started
+        self.elapsed_time = elapsed_time
         print(f"Logging will be resumed at save directory {self.save_dir}")
 
+    def _update_timer(self):
+        # elapsed is updated_here:
+        time_spent_after_last_elapse = perf_counter() - self._start_time
+        self.elapsed_time += time_spent_after_last_elapse
+        self._start_time = perf_counter()
+
     def get_parameters_for_checkpoint(self) -> dict[str, tp.Any]:
+        self._update_timer()
         return dict(
             val_metrics=self.val_metrics,
             test_metrics=self.test_metrics,
@@ -58,10 +72,12 @@ class Logger:
             best_epochs=self.best_epochs,
             save_dir=self.save_dir,
             current_run_already_started=self.current_run_already_started,
+            elapsed_time=self.elapsed_time,
         )
 
     def start_run(self, run):
         assert self.current_run_already_started is not None
+        self._start_time = perf_counter()
 
         if not self.current_run_already_started:
             self.current_run_already_started = True
@@ -103,6 +119,7 @@ class Logger:
                   f'(step {self.best_steps[-1]}, epoch {self.best_epochs[-1]}).\n')
 
     def save_metrics(self):
+        self._update_timer()
         num_runs = len(self.val_metrics)
 
         val_metric_mean = np.mean(self.val_metrics).item()
@@ -120,6 +137,7 @@ class Logger:
                 f'test {self.metric} std': test_metric_std,
                 f'val {self.metric} values': self.val_metrics,
                 f'test {self.metric} values': self.test_metrics,
+                'elapsed_time': self.elapsed_time,
                 'best steps': self.best_steps,
                 'best epochs': self.best_epochs
             }
@@ -131,7 +149,8 @@ class Logger:
                 f'val {self.metric} std': val_metric_std,
                 f'val {self.metric} values': self.val_metrics,
                 'best steps': self.best_steps,
-                'best epochs': self.best_epochs
+                'best epochs': self.best_epochs,
+                'elapsed_time': self.elapsed_time,
             }
 
         with open(os.path.join(self.save_dir, 'metrics.yaml'), 'w') as file:
@@ -144,9 +163,12 @@ class Logger:
         print(f'Finished {metrics["num runs"]} runs.')
         print(f'Val {self.metric} mean: {metrics[f"val {self.metric} mean"]:.4f}')
         print(f'Val {self.metric} std: {metrics[f"val {self.metric} std"]:.4f}')
+
         if not self.do_not_evaluate_on_test:
             print(f'Test {self.metric} mean: {metrics[f"test {self.metric} mean"]:.4f}')
             print(f'Test {self.metric} std: {metrics[f"test {self.metric} std"]:.4f}')
+
+        print(f'Elapsed time: {self.elapsed_time}')        
 
     @staticmethod
     def get_save_dir(base_dir, dataset_name, experiment_name):

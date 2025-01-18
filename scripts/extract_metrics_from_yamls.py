@@ -39,8 +39,9 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             f'val {metric_name} std': "val_metric_std",
             f'test {metric_name} mean': "test_metric_mean",
             f'test {metric_name} std': "test_metric_std",
+            "elapsed_time": "elapsed_time",
         }
-        
+
         # metrics_dict_for_run = args
 
         for metric_in_script, metric_for_pulsar_corresponding_name in sorted(metric_field_to_pulsar_unified.items()):

@@ -441,7 +441,7 @@ class EGCNAdapter(nn.Module):
         self.encoder = stnn.encoders.EvolveGCN(input_size=hidden_dim,
                                                hidden_size=hidden_dim,
                                                n_layers=num_spatiotemporal_blocks,
-                                               norm='gcn')
+                                               norm='mean')  # replaced 'gcn' with 'mean' to correspond to default in tsl
 
         NormalizationModule = NORMALIZATION_MODULES[normalization_name]
         self.output_normalization = NormalizationModule(hidden_dim)
@@ -476,6 +476,7 @@ class GWNAdapter(nn.Module):
             temporal_block = stnn.blocks.encoders.TemporalConvNet(input_channels=hidden_dim,
                                                                   hidden_channels=hidden_dim,
                                                                   kernel_size=temporal_kernel_size,
+                                                                  dropout=dropout,
                                                                   dilation=d,
                                                                   exponential_dilation=False,
                                                                   n_layers=1,

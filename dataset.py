@@ -924,7 +924,7 @@ class Dataset:
                 raise ValueError(f'Unsupported value for targets_for_features_nan_imputation_strategy: '
                                 f'{targets_for_features_nan_imputation_strategy}. Supported values are: "prev", "zero".')
 
-            if not disable_features_checkpointing:
+            if not disable_features_checkpointing and nirvana and checkpoint_dir.exists():
                 np.save(str(targets_prepared_file), targets)
                 np.save(str(targets_nan_mask_prepared_file), targets_nan_mask)
                 joblib.dump(targets_for_loss_transform, targets_for_loss_transform_prepared_file)
