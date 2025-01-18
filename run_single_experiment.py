@@ -598,7 +598,7 @@ def main():
             plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
         )
         if args.compile:
-            model = torch.compile(model, dynamic=True, mode="reduce-overhead")
+            model = torch.compile(model, dynamic=True, mode="reduce-overhead" if args.num_accumulation_steps == 1 else "max-autotune-no-cudagraphs")
 
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
