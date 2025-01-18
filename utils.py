@@ -38,14 +38,16 @@ class Logger:
                 yaml.safe_dump(vars(args), file, sort_keys=False)
             self.current_run_already_started: bool | None = False
             self.elapsed_time = 0
+            self.max_memory_allocated = 0
         else:
             self.save_dir = None  # Will be set during restarting
             self.current_run_already_started = None
             self.elapsed_time = None
+            self.max_memory_allocated = None
 
         self._start_time = perf_counter()
 
-    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started, elapsed_time):
+    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started, elapsed_time, max_memory_allocated):
         self.val_metrics = val_metrics
         self.test_metrics = test_metrics
         self.cur_run = cur_run
@@ -54,16 +56,19 @@ class Logger:
         self.save_dir = save_dir
         self.current_run_already_started = current_run_already_started
         self.elapsed_time = elapsed_time
+        self.max_memory_allocated = max_memory_allocated
         print(f"Logging will be resumed at save directory {self.save_dir}")
 
-    def _update_timer(self):
+    def _update_timer_and_torch_monitor(self):
         # elapsed is updated_here:
         time_spent_after_last_elapse = perf_counter() - self._start_time
         self.elapsed_time += time_spent_after_last_elapse
         self._start_time = perf_counter()
 
+        self.max_memory_allocated = max(self.max_memory_allocated, torch.cuda.max_memory_allocated())
+
     def get_parameters_for_checkpoint(self) -> dict[str, tp.Any]:
-        self._update_timer()
+        self._update_timer_and_torch_monitor()
         return dict(
             val_metrics=self.val_metrics,
             test_metrics=self.test_metrics,
@@ -73,6 +78,7 @@ class Logger:
             save_dir=self.save_dir,
             current_run_already_started=self.current_run_already_started,
             elapsed_time=self.elapsed_time,
+            max_memory_allocated=self.max_memory_allocated,
         )
 
     def start_run(self, run):
@@ -119,7 +125,7 @@ class Logger:
                   f'(step {self.best_steps[-1]}, epoch {self.best_epochs[-1]}).\n')
 
     def save_metrics(self):
-        self._update_timer()
+        self._update_timer_and_torch_monitor()
         num_runs = len(self.val_metrics)
 
         val_metric_mean = np.mean(self.val_metrics).item()
@@ -139,7 +145,9 @@ class Logger:
                 f'test {self.metric} values': self.test_metrics,
                 'elapsed_time': self.elapsed_time,
                 'best steps': self.best_steps,
-                'best epochs': self.best_epochs
+                'best epochs': self.best_epochs,
+                'max_memory_allocated': self.max_memory_allocated,
+                'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
             }
 
         else:
@@ -151,6 +159,8 @@ class Logger:
                 'best steps': self.best_steps,
                 'best epochs': self.best_epochs,
                 'elapsed_time': self.elapsed_time,
+                'max_memory_allocated': self.max_memory_allocated,
+                'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
             }
 
         with open(os.path.join(self.save_dir, 'metrics.yaml'), 'w') as file:
@@ -168,7 +178,9 @@ class Logger:
             print(f'Test {self.metric} mean: {metrics[f"test {self.metric} mean"]:.4f}')
             print(f'Test {self.metric} std: {metrics[f"test {self.metric} std"]:.4f}')
 
-        print(f'Elapsed time: {self.elapsed_time}')        
+        print(f'Elapsed time: {self.elapsed_time}')
+        print(f'Max memory allocated: {self.max_memory_allocated} bytes')
+        print(f'Max memory allocated: {self.max_memory_allocated // 2 ** 20} megabytes')
 
     @staticmethod
     def get_save_dir(base_dir, dataset_name, experiment_name):
