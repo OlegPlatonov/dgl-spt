@@ -438,6 +438,13 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
             # we backward for each minibatch to free computation graph
             gradscaler.scale(state_handler.loss / num_accumulation_steps).backward()
 
+            progress_bar.update()
+            progress_bar.set_postfix(
+                {metric: f'{value:.2f}' for metric, value in metrics.items()} |
+                {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
+            )
+
+
             if steps_till_optimizer_step == 0:
                 optimizer_step(optimizer=optimizer, gradscaler=gradscaler)
                 state_handler.loss = 0
@@ -457,24 +464,19 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                                    amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
                 logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
                 model.train()
-
-                state_handler.save_checkpoint()
+                if step != num_steps: # prevent state handler to save 3 checkpoints at the same time on the last step
+                    state_handler.save_checkpoint()
 
                 if optimizer_steps_till_eval == 0:
                     optimizer_steps_till_eval = eval_every
-
-            progress_bar.update()
-            progress_bar.set_postfix(
-                {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
-            )
 
             state_handler.step()
 
             if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
                 train_timestamps_loader_iterator = iter(train_timestamps_loader)
                 epoch += 1
-                state_handler.finish_epoch()
+                if epoch < num_epochs: # prevent state handler to save 3 checkpoints at the same time on the last step
+                    state_handler.finish_epoch()
                 # check that logger, model and optimizer are shared also for state wrapper
 
     logger.finish_run()
