@@ -275,8 +275,7 @@ def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
     return loss
 
 
-def optimizer_step(loss, optimizer, gradscaler):
-    gradscaler.scale(loss).backward()
+def optimizer_step(optimizer, gradscaler):
     gradscaler.step(optimizer)
     gradscaler.update()
     optimizer.zero_grad()
@@ -437,9 +436,11 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
             steps_till_optimizer_step -= 1
 
+            # we backward for each minibatch to free computation graph
+            gradscaler.scale(state_handler.loss / num_accumulation_steps).backward()
+
             if steps_till_optimizer_step == 0:
-                optimizer_step(loss=state_handler.loss / num_accumulation_steps, optimizer=optimizer,
-                               gradscaler=gradscaler)
+                optimizer_step(optimizer=optimizer, gradscaler=gradscaler)
                 state_handler.loss = 0
                 state_handler.optimizer_steps_done += 1
 
