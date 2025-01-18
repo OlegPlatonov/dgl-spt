@@ -130,10 +130,12 @@ class Logger:
 
         val_metric_mean = np.mean(self.val_metrics).item()
         val_metric_std = np.std(self.val_metrics, ddof=1).item() if len(self.val_metrics) > 1 else np.nan
+        best_val_metric = np.min(self.val_metrics).item()
 
         if not self.do_not_evaluate_on_test:
             test_metric_mean = np.mean(self.test_metrics).item()
             test_metric_std = np.std(self.test_metrics, ddof=1).item() if len(self.test_metrics) > 1 else np.nan
+            best_test_metric = np.min(self.test_metrics).item()
 
             metrics = {
                 'num runs': num_runs,
@@ -148,6 +150,8 @@ class Logger:
                 'best epochs': self.best_epochs,
                 'max_memory_allocated': self.max_memory_allocated,
                 'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
+                'best_val_metric': best_val_metric,
+                'best_test_metric': best_test_metric,
             }
 
         else:
@@ -161,6 +165,7 @@ class Logger:
                 'elapsed_time': self.elapsed_time,
                 'max_memory_allocated': self.max_memory_allocated,
                 'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
+                'best_val_metric': best_val_metric,
             }
 
         with open(os.path.join(self.save_dir, 'metrics.yaml'), 'w') as file:

@@ -40,6 +40,10 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             f'test {metric_name} mean': "test_metric_mean",
             f'test {metric_name} std': "test_metric_std",
             "elapsed_time": "elapsed_time",
+            "max_memory_allocated": "max_memory_allocated",
+            "max_memory_allocated_mb": "max_memory_allocated_mb",
+            "best_val_metric": "best_val_metric",
+            "best_test_metric": "best_test_metric",
         }
 
         # metrics_dict_for_run = args
@@ -61,16 +65,16 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
 
             results.append(pulsar_metric_dict)
 
-        # add best metric:
-        metrics_values_field = f"val {metric_name} values"
-        if metrics_values_field in metrics:
-            metrics_list = metrics[metrics_values_field]
-            best_metric = min(metrics_list)
-            results.append(dict(
-                value=best_metric,
-                name="best_val_metric",
-                **args,
-            ))
+        # # add best metric:
+        # metrics_values_field = f"val {metric_name} values"
+        # if metrics_values_field in metrics:
+        #     metrics_list = metrics[metrics_values_field]
+        #     best_metric = min(metrics_list)
+        #     results.append(dict(
+        #         value=best_metric,
+        #         name="best_val_metric",
+        #         **args,
+        #     ))
 
     except FileNotFoundError:
         pass
