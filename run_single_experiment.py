@@ -430,9 +430,8 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
         for step in range(starting_step_idx + 1, num_steps + 1):
             cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
-            cur_step_loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
+            state_handler.loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
                                          loss_fn=loss_fn, amp=amp)
-            state_handler.loss += cur_step_loss
 
             steps_till_optimizer_step -= 1
 
@@ -467,7 +466,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
             progress_bar.update()
             progress_bar.set_postfix(
                 {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                {'cur step loss': f'{cur_step_loss.item():.2f}', 'epoch': epoch}
+                {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
             )
 
             state_handler.step()
