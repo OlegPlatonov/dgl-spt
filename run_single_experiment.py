@@ -464,7 +464,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                                    amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
                 logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
                 model.train()
-                if step != num_steps: # prevent state handler to save 3 checkpoints at the same time on the last step
+                if step != num_steps and train_timestamps_loader_iterator._num_yielded != len(train_timestamps_loader): # prevent state handler to save 3 checkpoints at the same time on the last step
                     state_handler.save_checkpoint()
 
                 if optimizer_steps_till_eval == 0:
