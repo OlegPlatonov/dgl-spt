@@ -52,7 +52,7 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             if metric_in_script not in metrics:
                 continue
 
-            metric_value = metrics[metric_in_script]
+            metric_value = float(metrics[metric_in_script])
             metric_value = metric_value if not np.isnan(metric_value) else -1.0
             
             # metrics_dict_for_run[metric_for_pulsar_corresponding_name] = v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v vv v vvvvv v vv vv v v 
