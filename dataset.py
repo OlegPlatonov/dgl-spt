@@ -819,6 +819,7 @@ class Dataset:
             features_new = []
             feature_names_new = []
             numerical_features_mask_new = []
+            categorical_feature_idx = -1
             start_idx = 0
             for i in range(features.shape[2]):
                 feature = features[:, :, i, None]
@@ -827,7 +828,8 @@ class Dataset:
                     feature_names_new.append(feature_names[i])
                     numerical_features_mask_new.append(numerical_features_mask[i])
                 else:
-                    num_categories = len(one_hot_encoder.categories_[i])
+                    categorical_feature_idx += 1
+                    num_categories = len(one_hot_encoder.categories_[categorical_feature_idx])
                     feature = categorical_features_encoded[:, :, start_idx:start_idx + num_categories]
                     features_new.append(feature)
                     feature_names_new += one_hot_encoder_output_feature_names[start_idx:start_idx + num_categories]
