@@ -10,6 +10,13 @@ from dgl import ops
 from plr_embeddings import PLREmbeddings
 from utils import _check_dim_and_num_heads_consistency
 
+from baselines import (
+    AGCRN, ASTGCN, DSTAGNN, GWN, STGCN, STTN,
+    calculate_scaled_laplacian_matrix,
+    calculate_transition_matrix,
+    calculate_cheb_polynomials,
+)
+from torch_geometric.utils import to_dense_adj
 
 
 class ResidualModulesWrapper(nn.Module):
@@ -408,6 +415,9 @@ NORMALIZATION_MODULES = {
 }
 
 
+### torch spatiotemporal baselines
+
+
 class DCRNNAdapter(nn.Module):
     def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name, **kwargs):
         super().__init__()
@@ -628,10 +638,297 @@ class GRUGCNAdapter(nn.Module):
         return x
 
 
+### large-st repository baselines
+
+
+class AGCRNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name,
+                 spatial_kernel_size, seq_length, num_nodes_batched, **kwargs):
+        super().__init__()
+
+        # NOTE: `num_nodes_batched` must be the number of nodes in batched graph, not the original one
+        # NOTE: `input_dim` and `output_dim` are probably not used and required just for consistency
+
+        self.backbone = AGCRN(node_num=num_nodes_batched,
+                              input_dim=hidden_dim,
+                              output_dim=output_dim,
+                              seq_len=seq_length,
+                              num_layers=num_spatiotemporal_blocks,
+                              rnn_unit=hidden_dim,
+                              cheb_k=spatial_kernel_size)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+    
+    def forward(self, x, *args):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.backbone(x)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class ASTGCNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name,
+                 seq_length, num_nodes_batched, edge_index_batched, **kwargs):
+        super().__init__()
+
+        adjacency_matrix = to_dense_adj(edge_index_batched, max_num_nodes=num_nodes_batched).cpu().numpy()[0]
+        laplacian_matrix = calculate_scaled_laplacian_matrix(adjacency_matrix)
+        cheb_polynomials = calculate_cheb_polynomials(laplacian_matrix, order=3)
+
+        cheb_polynomials = [torch.FloatTensor(matrix) for matrix in cheb_polynomials]
+
+        # NOTE: `num_nodes_batched` must be the number of nodes in batched graph, not the original one
+        # NOTE: `edge_index_batched` of train batched graph is passed, so train and eval batch sizes must be equal
+        # NOTE: `input_dim` and `output_dim` are probably not used and required just for consistency
+
+        self.backbone = ASTGCN(node_num=num_nodes_batched,
+                               input_dim=hidden_dim,
+                               output_dim=output_dim,
+                               seq_len=seq_length,
+                               cheb_polynomials=cheb_polynomials,
+                               hidden_dim=hidden_dim,
+                               num_blocks=num_spatiotemporal_blocks)
+
+        self.init_backbone()
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+
+    def init_backbone(self):
+        for parameter in self.backbone.parameters():
+            nn.init.uniform_(parameter)
+    
+    def forward(self, x, *args):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.backbone(x)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class DSTAGNNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name,
+                 seq_length, num_nodes_batched, edge_index_batched, **kwargs):
+        super().__init__()
+
+        adjacency_matrix = to_dense_adj(edge_index_batched, max_num_nodes=num_nodes_batched).cpu().numpy()[0]
+        laplacian_matrix = calculate_scaled_laplacian_matrix(adjacency_matrix)
+        cheb_polynomials = calculate_cheb_polynomials(laplacian_matrix)
+
+        adjacency_matrix = torch.FloatTensor(adjacency_matrix).to(edge_index_batched.device)
+        cheb_polynomials = [torch.FloatTensor(matrix) for matrix in cheb_polynomials]
+
+        # NOTE: `num_nodes_batched` must be the number of nodes in batched graph, not the original one
+        # NOTE: `edge_index_batched` of train batched graph is passed, so train and eval batch sizes must be equal
+        # NOTE: `input_dim` and `output_dim` are probably not used and required just for consistency
+
+        self.backbone = DSTAGNN(node_num=num_nodes_batched,
+                                input_dim=hidden_dim,
+                                output_dim=output_dim,
+                                seq_len=seq_length,
+                                cheb_polynomials=cheb_polynomials,
+                                adjacency_matrix=adjacency_matrix,
+                                hidden_dim=hidden_dim,
+                                num_blocks=num_spatiotemporal_blocks)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+    
+    def forward(self, x, *args):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.backbone(x)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class GWNv2Adapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim,
+                 normalization_name, temporal_kernel_size, seq_length,
+                 num_nodes_batched, edge_index_batched, dropout, **kwargs):
+        super().__init__()
+
+        adjacency_matrix = to_dense_adj(edge_index_batched, max_num_nodes=num_nodes_batched).cpu().numpy()[0]
+        transition_matrix = calculate_transition_matrix(adjacency_matrix)
+        transition_matrix = torch.FloatTensor(transition_matrix).to(edge_index_batched.device)
+
+        # NOTE: `num_nodes_batched` must be the number of nodes in batched graph, not the original one
+        # NOTE: `edge_index_batched` of train batched graph is passed, so train and eval batch sizes must be equal
+        # NOTE: `input_dim` and `output_dim` are probably not used and required just for consistency
+
+        self.backbone = GWN(node_num=num_nodes_batched,
+                            input_dim=hidden_dim,
+                            output_dim=output_dim,
+                            seq_len=seq_length,
+                            num_blocks=num_spatiotemporal_blocks,
+                            hidden_dim=hidden_dim,
+                            kernel_size=temporal_kernel_size,
+                            transition_matrix=transition_matrix,
+                            dropout=dropout)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+    
+    def forward(self, x, *args):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.backbone(x)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class STGCNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim,
+                 normalization_name, temporal_kernel_size, spatial_kernel_size,
+                 seq_length, num_nodes_batched, edge_index_batched, dropout, **kwargs):
+        super().__init__()
+
+        adjacency_matrix = to_dense_adj(edge_index_batched, max_num_nodes=num_nodes_batched).cpu().numpy()[0]
+        laplacian_matrix = calculate_scaled_laplacian_matrix(adjacency_matrix)
+        laplacian_matrix = torch.FloatTensor(laplacian_matrix).to(edge_index_batched.device)
+
+        Ko = seq_length - (temporal_kernel_size - 1) * 2 * num_spatiotemporal_blocks
+
+        blocks = []
+        blocks.append([hidden_dim])
+
+        for _ in range(num_spatiotemporal_blocks):
+            blocks.append([hidden_dim, hidden_dim, hidden_dim])
+
+        if Ko == 0:
+            blocks.append([hidden_dim])
+        elif Ko > 0:
+            blocks.append([hidden_dim, hidden_dim])
+
+        blocks.append([output_dim])
+
+        # NOTE: `num_nodes_batched` must be the number of nodes in batched graph, not the original one
+        # NOTE: `edge_index_batched` of train batched graph is passed, so train and eval batch sizes must be equal
+        # NOTE: `input_dim` and `output_dim` are probably not used and required just for consistency
+
+        self.backbone = STGCN(node_num=num_nodes_batched,
+                              input_dim=hidden_dim,
+                              output_dim=output_dim,
+                              seq_len=seq_length,
+                              laplacian_matrix=laplacian_matrix,
+                              blocks=blocks,
+                              temporal_kernel_size=temporal_kernel_size,
+                              spatial_kernel_size=spatial_kernel_size,
+                              dropout=dropout)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+
+    def forward(self, x, *args):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.backbone(x)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
+class STTNAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name,
+                 seq_length, num_nodes_batched, edge_index_batched, dropout, **kwargs):
+        super().__init__()
+
+        adjacency_matrix = to_dense_adj(edge_index_batched, max_num_nodes=num_nodes_batched).cpu().numpy()[0]
+        transition_matrix = calculate_transition_matrix(adjacency_matrix)
+        transition_matrix = torch.FloatTensor(transition_matrix).to(edge_index_batched.device)
+
+        # NOTE: `num_nodes_batched` must be the number of nodes in batched graph, not the original one
+        # NOTE: `edge_index_batched` of train batched graph is passed, so train and eval batch sizes must be equal
+        # NOTE: `input_dim` and `output_dim` are probably not used and required just for consistency
+
+        self.backbone = STTN(node_num=num_nodes_batched,
+                             input_dim=hidden_dim,
+                             output_dim=output_dim,
+                             seq_len=seq_length,
+                             num_blocks=num_spatiotemporal_blocks,
+                             hidden_dim=hidden_dim,
+                             transition_matrix=transition_matrix,
+                             dropout=dropout)
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(hidden_dim * 3)
+        self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
+    
+    def forward(self, x, *args):
+        x = x.permute(1, 0, 2).unsqueeze(0)
+        x = self.backbone(x)
+        x = x.squeeze().permute(1, 0, 2)
+
+        x_final = x[:, -1]
+        x_mean = x.mean(axis=1)
+        x_max = x.max(axis=1).values
+        x = torch.cat([x_final, x_mean, x_max], axis=1)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+
+        return x
+
+
 BASELINE_ADAPTERS = {
+    ### torch spatiotemporal
     'DCRNN': DCRNNAdapter,
     'EGCN': EGCNAdapter,
     'GWN': GWNAdapter,
     'GGN': GGNAdapter,
     'GRUGCN': GRUGCNAdapter,
+
+    ### large-st repository
+    'AGCRN': AGCRNAdapter,
+    'ASTGCN': ASTGCNAdapter,
+    # 'DSTAGNN': DSTAGNNAdapter,
+    'GWN-v2': GWNv2Adapter,
+    'STGCN': STGCNAdapter,
+    'STTN': STTNAdapter,
 }
