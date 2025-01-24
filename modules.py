@@ -882,7 +882,7 @@ BASELINE_ADAPTERS = {
     ### large-st repository
     'AGCRN': AGCRNAdapter,
     'ASTGCN': ASTGCNAdapter,
-    'GWN-v2': GWNv2Adapter,
+    'GWNv2': GWNv2Adapter,
     'STGCN': STGCNAdapter,
     'STTN': STTNAdapter,
 }
