@@ -180,7 +180,8 @@ def get_args(add_name: bool = True):
     # baseline parameters were moved separately from main parameters. Please don't change it as it's going on right now in nirvana
     # temporal_* are used both in baselines and SequenceInputGNN models
     parser.add_argument('--baseline_name', type=str, default='DCRNN',
-                        choices=['DCRNN', 'EGCN', 'GWN', 'GGN', 'GRUGCN'])
+                        choices=['AGCRN', 'ASTGCN', 'DCRNN', 'EGCN', 'GWN',
+                                 'GGN', 'GRUGCN', 'GWNv2', 'STGCN', 'STTN'])
     parser.add_argument('--num_spatiotemporal_blocks', type=int, default=2,
                         help='Number of spatiotemporal blocks in time-and-space baseline models.')
     parser.add_argument('--num_temporal_blocks', type=int, default=2,
@@ -509,6 +510,8 @@ def main():
     logger = Logger(args=args, start_from_scratch=not whether_checkpoint_exists)
     state_handler.add_logger(logger=logger)
 
+    use_edge_index = args.model_class == 'BaselineModel'
+
     dataset = Dataset(
         name_or_path=args.dataset,
         state_handler=state_handler,
@@ -544,7 +547,7 @@ def main():
         nirvana=args.nirvana,
         spatiotemporal_features_local_processed_memmap_name=args.spatiotemporal_preprocessed_features_filepath,
         disable_features_checkpointing=args.disable_features_checkpointing,
-        pyg=args.model_class == "BaselineModel" and args.baseline_name in {'DCRNN', 'EGCN', 'GWN', 'GGN', 'GRUGCN'},  # NOTE decide whether to use pyg on the fly based on the model implementation
+        use_edge_index=use_edge_index,
     )
 
     if args.metric == 'RMSE':
@@ -561,7 +564,7 @@ def main():
             neighborhood_aggregation_sep=not args.do_not_separate_ego_node_representation,
             sequence_encoder_name=args.sequence_encoder,
             normalization_name=args.normalization,
-            num_edge_types=1 if dataset.use_pyg_graph else len(dataset.graph.etypes),
+            num_edge_types=1 if dataset.use_edge_index else len(dataset.graph.etypes),
             num_residual_blocks=args.num_residual_blocks,
             num_spatiotemporal_blocks=args.num_spatiotemporal_blocks,
             num_temporal_blocks=args.num_temporal_blocks,
@@ -580,7 +583,9 @@ def main():
             seq_encoder_seq_len=args.direct_lookback_num_steps,
             dropout=args.dropout,
             use_learnable_node_embeddings=args.use_learnable_node_embeddings,
-            num_nodes=dataset.num_nodes,  # NOTE dataset already has attribute for number of nodes, there is no need to call a graph object for that
+            num_nodes=dataset.num_nodes,
+            batch_size=dataset.train_batch_size,
+            edge_index_batched=dataset.train_batched_graph if use_edge_index else None,
             learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
             initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
             deepwalk_node_embeddings=dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
@@ -600,7 +605,7 @@ def main():
             plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
         )
         if args.compile:
-            model = torch.compile(model, dynamic=True, mode="reduce-overhead")
+            model = torch.compile(model, dynamic=True, mode='reduce-overhead')
 
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,

@@ -336,7 +336,7 @@ class SequenceInputGNN(SequenceInputModel):
 
 class BaselineModel(SequenceInputModel):
     def __init__(self, baseline_name, normalization_name, num_spatiotemporal_blocks, num_temporal_blocks, num_spatial_blocks,
-                 features_dim, hidden_dim, output_dim, use_learnable_node_embeddings, num_nodes,
+                 features_dim, hidden_dim, output_dim, use_learnable_node_embeddings, num_nodes, batch_size, edge_index_batched,
                  learnable_node_embeddings_dim, temporal_kernel_size, temporal_dilation, spatial_kernel_size,
                  seq_encoder_seq_len, dropout, initialize_learnable_node_embeddings_with_deepwalk, deepwalk_node_embeddings,
                  use_plr_for_numerical_features, numerical_features_mask, plr_numerical_features_frequencies_dim,
@@ -387,6 +387,8 @@ class BaselineModel(SequenceInputModel):
                                                 temporal_dilation=temporal_dilation,
                                                 spatial_kernel_size=spatial_kernel_size,
                                                 seq_length=seq_encoder_seq_len,
+                                                num_nodes_batched=num_nodes * batch_size,
+                                                edge_index_batched=edge_index_batched,
                                                 dropout=dropout)
 
     def forward(self, graph, x):

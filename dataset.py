@@ -42,8 +42,8 @@ class Dataset:
                  numerical_features_transform='none', numerical_features_nan_imputation_strategy='most_frequent',
                  train_batch_size=1, eval_batch_size=None, eval_max_num_predictions_per_step=1_000_000_000,
                  device='cpu', nirvana=False, spatiotemporal_features_local_processed_memmap_name: str | None = None,
-                 disable_features_checkpointing: bool = True, pyg=False,
-                 ):
+                 disable_features_checkpointing: bool = True, use_edge_index=False):
+
         DATA_ROOT = 'data'
         # torch.set_default_device(device)
 
@@ -228,7 +228,7 @@ class Dataset:
         edges = torch.from_numpy(data['edges'])
 
         if use_forward_and_reverse_edges_as_different_edge_types:
-            if pyg:
+            if use_edge_index:
                 raise ValueError(
                     'The use of both forward and reverse edges in the graph as different edge types is not supported '
                     'for PyG graphs. Arguments use_forward_and_reverse_edges_as_different_edge_types and pyg cannot be '
@@ -259,8 +259,8 @@ class Dataset:
         if eval_batch_size is not None and eval_batch_size != train_batch_size:
             eval_batched_graph = dgl.batch([graph for _ in range(eval_batch_size)])
 
-        if pyg:
-            # Convert DGL graphs to PyG edge indices (which are simply torch tensors storing edges).
+        if use_edge_index:
+            # Convert DGL graphs to edge index (which is simply a pair of torch tensors storing edges).
             graph = torch.stack(graph.edges(), axis=0)
             train_batched_graph = torch.stack(train_batched_graph.edges(), axis=0).long()  # torch_scatter needs int64 instead of int32
             if eval_batch_size is not None and eval_batch_size != train_batch_size:
@@ -400,7 +400,7 @@ class Dataset:
 
         # STORE EVERYTHING WE MIGHT NEED
 
-        self.use_pyg_graph = pyg
+        self.use_edge_index = use_edge_index
         self.name = name
         self.provide_sequence_inputs = provide_sequnce_inputs
         self.device = device
