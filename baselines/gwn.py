@@ -12,7 +12,7 @@ class GWN(BaseModel):
     Reference code: https://github.com/nnzhan/Graph-WaveNet
     '''
 
-    # NOTE: we fix the number of layers per block
+    # NOTE: we fix the following hyperparameters
     NUM_LAYERS = 2
 
     # NOTE: we use one common dimension for all num_layers

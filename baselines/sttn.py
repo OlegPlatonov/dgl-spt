@@ -12,7 +12,7 @@ class STTN(BaseModel):
     Reference code: https://github.com/xumingxingsjtu/STTN
     '''
 
-    # NOTE: we fix the MLP expansion factor
+    # NOTE: we fix the following hyperparameters
     MLP_EXPANSION_FACTOR = 2
 
     def __init__(self, num_blocks, hidden_dim, transition_matrix, dropout, **args):

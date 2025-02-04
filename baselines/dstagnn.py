@@ -166,7 +166,7 @@ class MultiHeadAttention(nn.Module):
         context, res_attn = ScaledDotProductAttention(self.d_k)(Q, K, V, attn_mask, res_att)
         context = context.transpose(2, 3).reshape(bs, self.num_of_d, -1, self.n_head * self.d_v)
         output = self.fc(context)
-        # NOTE: sic!
+        # NOTE: strange code
         return nn.LayerNorm(self.d_model).to(output.device)(output + residual), res_attn
 
 

@@ -180,8 +180,8 @@ def get_args(add_name: bool = True):
     # baseline parameters were moved separately from main parameters. Please don't change it as it's going on right now in nirvana
     # temporal_* are used both in baselines and SequenceInputGNN models
     parser.add_argument('--baseline_name', type=str, default='DCRNN',
-                        choices=['AGCRN', 'ASTGCN', 'DCRNN', 'EGCN', 'GWN',
-                                 'GGN', 'GRUGCN', 'GWNv2', 'STGCN', 'STTN'])
+                        choices=['AGCRN', 'ASTGCN', 'DCRNN', 'EGCN', 'GWN', 'GGN',
+                                 'GRUGCN', 'GWNv2', 'STGCN', 'STGODE', 'STTN'])
     parser.add_argument('--num_spatiotemporal_blocks', type=int, default=2,
                         help='Number of spatiotemporal blocks in time-and-space baseline models.')
     parser.add_argument('--num_temporal_blocks', type=int, default=2,

@@ -11,7 +11,7 @@ class AGCRN(BaseModel):
     '''
     Reference code: https://github.com/LeiBAI/AGCRN
     '''
-    # NOTE: we fix the embedding dimension
+    # NOTE: we fix the following hyperparameters
     EMBEDDING_DIM = 8
 
     def __init__(self, num_layers, rnn_unit, cheb_k, **args):
