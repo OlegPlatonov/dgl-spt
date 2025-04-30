@@ -67,6 +67,8 @@ holoviews
 bokeh
 seaborn
 plotly
+kaleido
+cartopy
 
 pytorch_warmup
 torch_optimizer

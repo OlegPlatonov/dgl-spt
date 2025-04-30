@@ -661,7 +661,14 @@ class AGCRNAdapter(nn.Module):
         NormalizationModule = NORMALIZATION_MODULES[normalization_name]
         self.output_normalization = NormalizationModule(hidden_dim * 3)
         self.output_linear = nn.Linear(in_features=hidden_dim * 3, out_features=output_dim)
-    
+
+
+        self.init_backbone()
+
+    def init_backbone(self):
+        for parameter in self.backbone.parameters():
+            nn.init.uniform_(parameter)
+
     def forward(self, x, *args):
         x = x.permute(1, 0, 2).unsqueeze(0)
         x = self.backbone(x)
