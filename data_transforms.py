@@ -127,6 +127,7 @@ class IdentityTransform(BaseDataTransform):
 class StandardScaler(BaseDataTransform):
     def fit(self, x):
         self.mean = np.nanmean(x, axis=0)
+        self.mean = np.where(np.isnan(self.mean), 0, self.mean)
         self.std = _handle_zeros_in_scale(np.nanstd(x, axis=0, ddof=0))
 
     def transform(self, x):
