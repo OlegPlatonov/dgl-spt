@@ -374,7 +374,7 @@ class NirvanaStateHandler(StateHandler):
                 optimizer_steps_done=0,
                 loss=0.0,
                 logger_state=self.logger_state,
-                model_state=None,
+                model_state=self.current_run_model_state_dict,
                 optimizer_state=None,
                 scaler_state=None,
                 runs_completed=self.num_runs_completed,

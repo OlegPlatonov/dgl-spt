@@ -292,7 +292,7 @@ def optimizer_step(optimizer, gradscaler):
 
 
 def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True):
-    targets_transformed = targets.clone()
+    # targets_transformed = targets.clone()
 
     if len(preds) < dataset.eval_max_num_timestamps_per_step:
         # Loss can be computed on GPU in one step.
@@ -301,7 +301,7 @@ def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, a
         if apply_transform_to_preds:
             preds = dataset.transform_preds_for_metrics(preds)
 
-        preds_transformed = preds.cpu().clone()
+        # preds_transformed = preds.cpu().clone()
 
         targets = targets.to(dataset.device)
         targets_nan_mask = targets_nan_mask.to(dataset.device)
@@ -312,7 +312,7 @@ def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, a
 
     else:
         # Computing loss on GPU will be done in multiple steps.
-        preds_transformed = dataset.transform_preds_for_metrics(preds) if apply_transform_to_preds else preds.clone()
+        # preds_transformed = dataset.transform_preds_for_metrics(preds) if apply_transform_to_preds else preds.clone()
         preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
         preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
                                           shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
@@ -341,7 +341,7 @@ def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, a
 
     metric = loss_mean.sqrt().item() if metric == 'RMSE' else loss_mean.item()
 
-    return metric, preds_transformed, targets_transformed
+    return metric#, preds_transformed, targets_transformed
 
 
 @torch.no_grad()
@@ -384,17 +384,17 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
     else:
         raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    metric, preds_transformed, targets_transformed = compute_metric(preds=preds, targets=targets, targets_nan_mask=targets_nan_mask, dataset=dataset,
+    metric = compute_metric(preds=preds, targets=targets, targets_nan_mask=targets_nan_mask, dataset=dataset,
                             loss_fn=loss_fn, metric=metric, apply_transform_to_preds=True)
 
-    if split == 'val':
-        VAL_PREDICTIONS = preds_transformed
-        VAL_TARGETS = targets_transformed
-        VAL_TARGETS_NAN_MASK = targets_nan_mask
-    else:
-        TEST_PREDICTIONS = preds_transformed
-        TEST_TARGETS = targets_transformed
-        TEST_TARGETS_NAN_MASK = targets_nan_mask
+    # if split == 'val':
+    #     VAL_PREDICTIONS = preds_transformed
+    #     VAL_TARGETS = targets_transformed
+    #     VAL_TARGETS_NAN_MASK = targets_nan_mask
+    # else:
+    #     TEST_PREDICTIONS = preds_transformed
+    #     TEST_TARGETS = targets_transformed
+    #     TEST_TARGETS_NAN_MASK = targets_nan_mask
 
     return metric
 
