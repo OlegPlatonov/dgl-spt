@@ -3,7 +3,7 @@
 LOG_DIR="experiments/baselines"
 
 
-COMMAND="naive_forecast.py --methods prev-latest --eval_max_num_predictions_per_step 10000000 "
+COMMAND="naive_forecast.py --methods constant per-node-constant prev-latest prev-periodic --constants mean median 0 --per-node-constants mean median --eval_max_num_predictions_per_step 10000000 "
 
 DATASETS_OPTIONS=(
 "--dataset city_traffic_m_speed --prediction_horizon 12 --periods 12 24 48 288 2016 5032"
@@ -13,7 +13,6 @@ DATASETS_OPTIONS=(
 )
 
 DATASETS=("city_traffic_m_speed" "city_traffic_m_volume" "city_traffic_l_speed" "city_traffic_l_volume")
-
 
 mkdir -p "$LOG_DIR"
 

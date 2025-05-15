@@ -66,9 +66,9 @@ def get_args():
 
 def compute_and_print_metrics(val_preds, test_preds, val_targets, test_targets, val_targets_nan_mask,
                               test_targets_nan_mask, dataset, loss_fn, metric, print_header):
-    val_metric = compute_metric(preds=val_preds, targets=val_targets, targets_nan_mask=val_targets_nan_mask,
+    val_metric, _, _ = compute_metric(preds=val_preds, targets=val_targets, targets_nan_mask=val_targets_nan_mask,
                                 dataset=dataset, loss_fn=loss_fn, metric=metric, apply_transform_to_preds=False)
-    test_metric = compute_metric(preds=test_preds, targets=test_targets, targets_nan_mask=test_targets_nan_mask,
+    test_metric, _, _ = compute_metric(preds=test_preds, targets=test_targets, targets_nan_mask=test_targets_nan_mask,
                                  dataset=dataset, loss_fn=loss_fn, metric=metric, apply_transform_to_preds=False)
 
     print(print_header + ':')

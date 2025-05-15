@@ -7,7 +7,7 @@ To install all packages, you need to install `conda` package manager. Then, run 
 export DGLBACKEND=pytorch  # set default backed for DGL to torch
 
 # installation via mamba/conda
-conda create -n graph_ml python==3.11 -y && \
+conda create -n graph_ml python==3.11 -y && conda activate graph_ml && \
 pip install --no-cache-dir torch_geometric && \
 pip install --no-cache-dir torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html && \
 pip install --no-cache-dir dgl -f https://data.dgl.ai/wheels/torch-2.4/cu124/repo.html && \
