@@ -123,12 +123,12 @@ If you want to add custom dataset, ensure that your `.npz` file contains all fie
 
 # Launch experiments
 
-To launch experiments on CityTraffic-M/L datasets, you can use these snippets:
+To launch experiments on CityTraffic-M/L datasets, you can use these snippets, according to their names in Kaggle:
 ```
-CITY_TRAFFIC_L_VOLUME=...
-CITY_TRAFFIC_L_SPEED=...
-CITY_TRAFFIC_M_VOLUME=...
-CITY_TRAFFIC_M_SPEED=...
+CITY_TRAFFIC_L_VOLUME=city_traffic_l_volume
+CITY_TRAFFIC_L_SPEED=city_traffic_l_speed
+CITY_TRAFFIC_M_VOLUME=city_traffic_m_volume
+CITY_TRAFFIC_M_SPEED=city_traffic_m_speed
 ```
 
 Choose the dataset (for instance, let's choose `CityTraffic-M-Speed`):
