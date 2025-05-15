@@ -266,8 +266,6 @@ class StateHandler:
         self._grad_scaler_state: TorchStateDict | None = None
         self._logger_state: dict[str, tp.Any] | None = None
 
-        self.predictions_targets_dict : dict[str, torch.Tensor] = {}
-
     def load_checkpoint(self, initial_loading: bool = False) -> None:
         pass
 
@@ -309,7 +307,7 @@ class StateHandler:
     def finish_epoch(self) -> None:
         pass
 
-    def finish_run(self, predictions_targets_dict: dict[str, torch.Tensor]) -> None:
+    def finish_run(self) -> None:
         del self.model
         del self.optimizer
         del self.grad_scaler
@@ -392,7 +390,6 @@ class NirvanaStateHandler(StateHandler):
                 runs_completed=self.num_runs_completed,
             )
 
-        overall_state_dict.update(self.predictions_targets_dict)
 
         torch.save(overall_state_dict, f=self.checkpoint_file_path)
         copy_out_to_snapshot(self.checkpoint_dir, dump=True)
@@ -406,8 +403,7 @@ class NirvanaStateHandler(StateHandler):
         self.epochs_finished += 1
         self.save_checkpoint()
 
-    def finish_run(self, predictions_targets_dict: dict[str, torch.Tensor]) -> None:
-        self.predictions_targets_dict = predictions_targets_dict
+    def finish_run(self) -> None:
         self.num_runs_completed += 1
         self.save_checkpoint(finish_run=True)
         super().finish_run(predictions_targets_dict)

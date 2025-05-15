@@ -1,1 +1,0 @@
-python run_single_experiment.py --name test_run --dataset pems-bay --metric MAE --prediction_horizon 12 --direct_lookback_num_steps 48 --to_undirected --add_nan_indicators_to_targets_for_features --model_class SingleInputGNN --neighborhood_aggregation MeanAggr --device cuda:0

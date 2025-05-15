@@ -265,15 +265,6 @@ def get_args(add_name: bool = True):
     parser.add_argument('--compile', default=False, action='store_true',
                         help='Enables model compilation.')
 
-    parser.add_argument('--SAVE_DIR', type=str, default=None,
-                        help='Where to save predictions of your model')
-
-    parser.add_argument('--MODEL_STATE', type=str, default=None,
-                        help='Path to model state')
-
-    parser.add_argument('--DO_NOT_TRAIN', action='store_true',
-                        help='Do not train, only eval')
-
     args = parser.parse_args()
 
     return args, parser
@@ -287,9 +278,6 @@ def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
         loss = loss.sum() / (~targets_nan_mask).sum()
-
-        if torch.isnan(loss):
-            breakpoint()
 
     return loss
 
@@ -428,7 +416,7 @@ def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss
 
 def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr,
           weight_decay, run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None,
-          do_not_evaluate_on_test=False, nirvana=False, do_not_train=False,):
+          do_not_evaluate_on_test=False, nirvana=False):
 
     if seed is not None:
         torch.manual_seed(seed)
@@ -464,85 +452,70 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     train_timestamps_loader_iterator = iter(train_timestamps_loader)
     model.train()
     starting_step_idx = state_handler.steps_after_run_start
-    if not do_not_train:
-        with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
-            progress_bar.n = starting_step_idx
-            if starting_step_idx > 0:
-                t1 = perf_counter()
-                print(f'Skipping {starting_step_idx} batches after rescheduling.')
-                for step_to_skip in range(starting_step_idx % len(train_timestamps_loader_iterator)):
-                    next(train_timestamps_loader_iterator)
-                t2 = perf_counter()
-                print(f'Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds.')
+    with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
+        progress_bar.n = starting_step_idx
+        if starting_step_idx > 0:
+            t1 = perf_counter()
+            print(f'Skipping {starting_step_idx} batches after rescheduling.')
+            for step_to_skip in range(starting_step_idx % len(train_timestamps_loader_iterator)):
+                next(train_timestamps_loader_iterator)
+            t2 = perf_counter()
+            print(f'Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds.')
 
-            for step in range(starting_step_idx + 1, num_steps + 1):
-                cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
-                state_handler.loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
-                                            loss_fn=loss_fn, amp=amp)
+        for step in range(starting_step_idx + 1, num_steps + 1):
+            cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
+            state_handler.loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
+                                        loss_fn=loss_fn, amp=amp)
 
-                steps_till_optimizer_step -= 1
+            steps_till_optimizer_step -= 1
 
-                # we backward for each minibatch to free computation graph
-                gradscaler.scale(state_handler.loss / num_accumulation_steps).backward()
+            # we backward for each minibatch to free computation graph
+            gradscaler.scale(state_handler.loss / num_accumulation_steps).backward()
 
-                progress_bar.update()
-                progress_bar.set_postfix(
-                    {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                    {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
-                )
+            progress_bar.update()
+            progress_bar.set_postfix(
+                {metric: f'{value:.2f}' for metric, value in metrics.items()} |
+                {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
+            )
 
 
-                if steps_till_optimizer_step == 0:
-                    optimizer_step(optimizer=optimizer, gradscaler=gradscaler)
-                    state_handler.loss = 0
-                    state_handler.optimizer_steps_done += 1
+            if steps_till_optimizer_step == 0:
+                optimizer_step(optimizer=optimizer, gradscaler=gradscaler)
+                state_handler.loss = 0
+                state_handler.optimizer_steps_done += 1
 
-                    steps_till_optimizer_step = num_accumulation_steps
-                    optimizer_steps_till_eval -= 1
+                steps_till_optimizer_step = num_accumulation_steps
+                optimizer_steps_till_eval -= 1
 
-                if (
-                    optimizer_steps_till_eval == 0 or
-                    train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)
-                ):
-                    progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
-                    model.eval()
-                    metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
-                                    test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
-                                    amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
-                    logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
-                    model.train()
-                    if step != num_steps and train_timestamps_loader_iterator._num_yielded != len(train_timestamps_loader): # prevent state handler to save 3 checkpoints at the same time on the last step
-                        state_handler.save_checkpoint()
+            if (
+                optimizer_steps_till_eval == 0 or
+                train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)
+            ):
+                progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
+                model.eval()
+                metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
+                                test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
+                                amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
+                logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
+                model.train()
+                if step != num_steps and train_timestamps_loader_iterator._num_yielded != len(train_timestamps_loader): # prevent state handler to save 3 checkpoints at the same time on the last step
+                    state_handler.save_checkpoint()
 
-                    if optimizer_steps_till_eval == 0:
-                        optimizer_steps_till_eval = eval_every
+                if optimizer_steps_till_eval == 0:
+                    optimizer_steps_till_eval = eval_every
 
-                state_handler.step()
+            state_handler.step()
 
-                if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
-                    train_timestamps_loader_iterator = iter(train_timestamps_loader)
-                    epoch += 1
-                    if epoch < num_epochs: # prevent state handler to save 3 checkpoints at the same time on the last step
-                        state_handler.finish_epoch()
-                    # check that logger, model and optimizer are shared also for state wrapper
-    else:
-        # einference:
-        model.eval()
-        metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
-                        test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
-                        amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
-        logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
+            if train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader):
+                train_timestamps_loader_iterator = iter(train_timestamps_loader)
+                epoch += 1
+                if epoch < num_epochs: # prevent state handler to save 3 checkpoints at the same time on the last step
+                    state_handler.finish_epoch()
+                # check that logger, model and optimizer are shared also for state wrapper
 
     logger.finish_run()
 
-    state_handler.finish_run(predictions_targets_dict=dict(
-        VAL_PREDICTIONS=VAL_PREDICTIONS,
-        VAL_TARGETS=VAL_TARGETS,
-        VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
-        TEST_PREDICTIONS=TEST_PREDICTIONS,
-        TEST_TARGETS=TEST_TARGETS,
-        TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-    ))
+    state_handler.finish_run()
 
     model.cpu()
 
@@ -667,10 +640,6 @@ def main():
             plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
         )
 
-        if args.MODEL_STATE is not None:
-            state_dict_model = torch.load(args.MODEL_STATE)['model_state']
-            model.load_state_dict(state_dict_model)
-            
         if args.compile:
             model = torch.compile(model, dynamic=True, mode='reduce-overhead')
 
@@ -679,22 +648,10 @@ def main():
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
               device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
               do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana, state_handler=state_handler,
-              do_not_train=args.DO_NOT_TRAIN)
+              )
 
         state_handler.load_checkpoint()
 
-        if args.SAVE_DIR is not None:
-            torch.save(
-                dict(
-                    VAL_PREDICTIONS=VAL_PREDICTIONS,
-                    VAL_TARGETS=VAL_TARGETS,
-                    VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
-                    TEST_PREDICTIONS=TEST_PREDICTIONS,
-                    TEST_TARGETS=TEST_TARGETS,
-                    TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-                ),
-                args.SAVE_DIR
-            )
     logger.print_metrics_summary()
 
 
