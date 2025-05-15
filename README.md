@@ -4,7 +4,7 @@
 To install all packages, you need to install `conda` package manager. Then, run the following commands: 
 
 ```
-export DGLBACKEDN=pytorch  # set default backed for DGL to torch
+export DGLBACKEND=pytorch  # set default backed for DGL to torch
 
 # installation via mamba/conda
 conda create -n graph_ml python==3.11 -y && \
