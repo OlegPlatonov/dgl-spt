@@ -3,7 +3,7 @@
 # Installation
 To install all packages, you need to install `conda` package manager. Then, run the following commands: 
 
-```
+```{bash}
 export DGLBACKEND=pytorch  # set default backed for DGL to torch
 
 # installation via mamba/conda
@@ -126,7 +126,7 @@ If you want to add custom dataset, ensure that your `.npz` file contains all fie
 # Launch experiments
 
 To launch experiments on CityTraffic-M/L datasets, you can use these snippets, according to their names in Kaggle:
-```
+```{bash}
 CITY_TRAFFIC_L_VOLUME=city_traffic_l_volume
 CITY_TRAFFIC_L_SPEED=city_traffic_l_speed
 CITY_TRAFFIC_M_VOLUME=city_traffic_m_volume
@@ -143,7 +143,7 @@ DATASET=$CITY_TRAFFIC_M_SPEED
 
 Here is the example of launching main experiment:
 
-```
+```{bash}
 python run_single_experiment.py \
     --name test_run
     --dataset $DATASET \
@@ -158,7 +158,7 @@ python run_single_experiment.py \
 ```
 
 To get full list of parameters, run:
-```
+```{bash}
 python run_single_experiment.py -h
 ```
 
@@ -166,7 +166,7 @@ python run_single_experiment.py -h
 
 Here is the example of launching naive baselines on the dataset:
 
-```
+```{bash}
 python naive_forecast.py \
     --dataset $DATASET \
     --metric MAE \
@@ -180,4 +180,19 @@ python naive_forecast.py \
 To get full list of parameters for naive baselines, run:
 ```
 python naive_forecast.py -h
+```
+
+### Reproduce experiments
+To reproduce experiments from the paper, you can run two commands:
+
+- Reproduce main models:
+  
+```{bash}
+bash reproduce_experiments_models.sh
+```
+
+- Reproduce naive baseline methods:
+
+```{bash}
+bash reproduce_experiments_naive_baselines.sh
 ```
