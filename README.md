@@ -21,6 +21,8 @@ pip install -r requirements.txt
 1) To access the datasets, download the files from Kaggle -- [datasets page](https://kaggle.com/datasets/3df0e7310d4f30b958697bf445ef9eef4168bb541b6938998eb677c1990644db).
 2) After download, place the files in the `data` directory
 
+**NOTE**: Croissant file for the dataset is available in `croissant` directory.
+
 ## Datasets specifications
 
 The `data` directory is be used to keep datasets for this project. If you provide a dataset name (rather than a file path)
