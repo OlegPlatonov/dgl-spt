@@ -1,4 +1,4 @@
-# Official repository of the submission 
+# Metropolis-Scale Road Network Datasets for Fine-Grained Urban Traffic Forecasting
 
 # Installation
 To install all packages, you need to install `conda` package manager. Then, run the following commands: 
@@ -162,7 +162,7 @@ python run_single_experiment.py -h
 
 ### Naive baselines
 
-Here is the example of launcing naive baselines on the dataset:
+Here is the example of launching naive baselines on the dataset:
 
 ```
 python naive_forecast.py \
