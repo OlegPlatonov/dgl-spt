@@ -1,4 +1,4 @@
-# Official repositor
+# Official repository of the submission 
 
 # Installation
 To install all packages, you need to install `conda` package manager. Then, run the following commands: 
