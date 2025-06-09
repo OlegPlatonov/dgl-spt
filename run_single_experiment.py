@@ -535,7 +535,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
     logger.finish_run()
 
-    state_handler.finish_run(
+    state_handler.finish_run({})
     #     predictions_targets_dict=dict(
     #     VAL_PREDICTIONS=VAL_PREDICTIONS,
     #     VAL_TARGETS=VAL_TARGETS,
@@ -544,7 +544,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     #     TEST_TARGETS=TEST_TARGETS,
     #     TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
     # )
-    )
+    # )
 
     model.cpu()
 
