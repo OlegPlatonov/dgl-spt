@@ -23,7 +23,6 @@ TEST_TARGETS = None
 VAL_TARGETS_NAN_MASK = None
 TEST_TARGETS_NAN_MASK = None
 
-
 def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
 

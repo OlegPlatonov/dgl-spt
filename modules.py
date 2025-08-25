@@ -832,13 +832,12 @@ class STGCNAdapter(nn.Module):
         x_final = x[:, -1]
         x_mean = x.mean(axis=1)
         x_max = x.max(axis=1).values
-        x = torch.cat([x_final, x_mean, x_max], axis=1)
+        x = torch.cat([x_final, x_mean, x_max], axis=1) # type: ignore
 
         x = self.output_normalization(x)
         x = self.output_linear(x).squeeze(1)
 
         return x
-
 
 class STGODEAdapter(nn.Module):
     def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim, normalization_name,
@@ -916,7 +915,7 @@ class STTNAdapter(nn.Module):
         x_final = x[:, -1]
         x_mean = x.mean(axis=1)
         x_max = x.max(axis=1).values
-        x = torch.cat([x_final, x_mean, x_max], axis=1)
+        x = torch.cat([x_final, x_mean, x_max], axis=1) # type: ignore
 
         x = self.output_normalization(x)
         x = self.output_linear(x).squeeze(1)
