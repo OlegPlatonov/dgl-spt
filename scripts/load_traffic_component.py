@@ -149,8 +149,6 @@ def prepare_static_features(static_features_path: str) -> pd.DataFrame:
         enable_read_parallel=True
     )
 
-
-    # TODO MAKE TRANSFORMATION FROM GLEB CODE
     df = pd.DataFrame(list(map(lambda row: process_graph_features(row), tqdm(yt_table_iterator, total=NUM_ROWS, desc="Loading static features raw table"))))
 
 
@@ -432,6 +430,7 @@ if __name__ == '__main__':
     assert travel_speed_tensor.shape[1] == traverses_tensor.shape[1]
 
 
+    travel_speed_tensor *= 3.6
 
     # save all data:
     timestamps = (np.arange(num_timestamps) + min_timestamp) * GRANULARITY_MINS * 60
