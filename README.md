@@ -1,4 +1,4 @@
-# Metropolis-Scale Road Network Datasets for Fine-Grained Urban Traffic Forecasting
+# Fine-Grained Urban Traffic Forecasting on Metropolis-Scale Road Networks
 
 # Installation
 To install all packages, you need to install `conda` package manager. Then, run the following commands: 
@@ -17,8 +17,8 @@ pip install -r requirements.txt
 
 # Datasets
 
-## Access to `CityTraffic-M/L`
-1) To access the datasets, download the files from Kaggle -- [datasets page](https://kaggle.com/datasets/3df0e7310d4f30b958697bf445ef9eef4168bb541b6938998eb677c1990644db).
+## Access to `city-traffic-M/L`
+1) To access the datasets, download the files from Kaggle -- [datasets page](https://kaggle.com/datasets/edacf50144f353ac05592193d96eb7b6910b708ad8319806ce1dcf71f946743b).
 2) After download, place the files in the `data` directory
 
 **NOTE**: Croissant file for the dataset is available in `croissant` directory.
@@ -31,7 +31,7 @@ to the `--dataset` command line ergument of the `run_single_experiment.py` scrip
 Each dataset is stored in a `.npz` file (NumPy's compressed zipped archive 
 containing objects &mdash; typically, numpy arrays &mdash; and their names).
 
-To use a dataset with our code, the following objects should be present in the `.npz` file under corresponding names (they are presented in `CityTraffic-M/L`):
+To use a dataset with our code, the following objects should be present in the `.npz` file under corresponding names (they are presented in `city-traffic-M/L`):
 
 - **`unix_timestamps`**: an array of shape `[num_timestamps]` with corresponding UTC-timestamp value for each timestamp.
 
@@ -125,7 +125,7 @@ If you want to add custom dataset, ensure that your `.npz` file contains all fie
 
 # Launch experiments
 
-To launch experiments on CityTraffic-M/L datasets, you can use these snippets, according to their names in Kaggle:
+To launch experiments on city-traffic-M/L datasets, you can use these snippets, according to their names in Kaggle:
 ```{bash}
 CITY_TRAFFIC_L_VOLUME=city_traffic_l_volume
 CITY_TRAFFIC_L_SPEED=city_traffic_l_speed
@@ -133,7 +133,7 @@ CITY_TRAFFIC_M_VOLUME=city_traffic_m_volume
 CITY_TRAFFIC_M_SPEED=city_traffic_m_speed
 ```
 
-Choose the dataset (for instance, let's choose `CityTraffic-M-Speed`):
+Choose the dataset (for instance, let's choose `city-traffic-M-Speed`):
 ```
 DATASET=$CITY_TRAFFIC_M_SPEED
 ```
