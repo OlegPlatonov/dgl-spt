@@ -1101,6 +1101,8 @@ def main():
 
         state_handler.load_checkpoint()
 
+
+
         PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
         if args.save_preds is not None:
             torch.save(
