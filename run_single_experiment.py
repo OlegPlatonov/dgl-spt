@@ -684,8 +684,21 @@ def main():
 
         state_handler.load_checkpoint()
 
-        if args.SAVE_DIR is not None:
-            torch.save(
+        # if args.SAVE_DIR is not None:
+        #     torch.save(
+        #         dict(
+        #             VAL_PREDICTIONS=VAL_PREDICTIONS,
+        #             VAL_TARGETS=VAL_TARGETS,
+        #             VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
+        #             TEST_PREDICTIONS=TEST_PREDICTIONS,
+        #             TEST_TARGETS=TEST_TARGETS,
+        #             TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
+        #         ),
+        #         args.SAVE_DIR
+        #     )
+
+        PRED_SAVE_DIR = CHECKPOINT_DIR / 'preds.pt'
+        torch.save(
                 dict(
                     VAL_PREDICTIONS=VAL_PREDICTIONS,
                     VAL_TARGETS=VAL_TARGETS,
@@ -694,8 +707,9 @@ def main():
                     TEST_TARGETS=TEST_TARGETS,
                     TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
                 ),
-                args.SAVE_DIR
+                PRED_SAVE_DIR
             )
+
     logger.print_metrics_summary()
 
 
