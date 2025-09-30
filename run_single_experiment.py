@@ -15,6 +15,13 @@ import random
 import os
 import numpy as np
 
+from nirvana_utils import copy_out_to_snapshot
+
+
+torch.set_float32_matmul_precision('high')
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 # torch.set_float32_matmul_precision('high')
 # torch.backends.cuda.matmul.allow_tf32 = True
 # torch.backends.cudnn.allow_tf32 = True
@@ -1087,31 +1094,20 @@ def main():
 
         state_handler.load_checkpoint()
 
-        # if args.SAVE_DIR is not None:
-        #     torch.save(
-        #         dict(
-        #             VAL_PREDICTIONS=VAL_PREDICTIONS,
-        #             VAL_TARGETS=VAL_TARGETS,
-        #             VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
-        #             TEST_PREDICTIONS=TEST_PREDICTIONS,
-        #             TEST_TARGETS=TEST_TARGETS,
-        #             TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-        #         ),
-        #         args.SAVE_DIR
-        #     )
-
-        PRED_SAVE_DIR = CHECKPOINT_DIR / 'preds.pt'
+        PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
         torch.save(
-                dict(
-                    VAL_PREDICTIONS=VAL_PREDICTIONS,
-                    VAL_TARGETS=VAL_TARGETS,
-                    VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
-                    TEST_PREDICTIONS=TEST_PREDICTIONS,
-                    TEST_TARGETS=TEST_TARGETS,
-                    TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-                ),
-                PRED_SAVE_DIR
-            )
+            dict(
+                VAL_PREDICTIONS=VAL_PREDICTIONS,
+                VAL_TARGETS=VAL_TARGETS,
+                VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
+                TEST_PREDICTIONS=TEST_PREDICTIONS,
+                TEST_TARGETS=TEST_TARGETS,
+                TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
+            ),
+            PREDS_STATE_FILENAME
+        )
+            
+        copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
 
     logger.print_metrics_summary()
 
