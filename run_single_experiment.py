@@ -289,6 +289,9 @@ def get_args(add_name: bool = True):
 
     parser.add_argument('--SAVE_DIR', type=str, default=None,
                         help='Where to save predictions of your model')
+    
+    parser.add_argument('--save_preds', type=bool, default=False,
+                        help='Wheather to save predictions of your model or not')
 
     parser.add_argument('--MODEL_STATE', type=str, default=None,
                         help='Path to model state')
@@ -1094,18 +1097,18 @@ def main():
 
         state_handler.load_checkpoint()
 
+
+
         PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
-        torch.save(
-            dict(
-                VAL_PREDICTIONS=VAL_PREDICTIONS,
-                VAL_TARGETS=VAL_TARGETS,
-                VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
-                TEST_PREDICTIONS=TEST_PREDICTIONS,
-                TEST_TARGETS=TEST_TARGETS,
-                TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-            ),
-            PREDS_STATE_FILENAME
-        )
+        if args.save_preds is not None:
+            torch.save(
+                dict(
+                    TEST_PREDICTIONS=TEST_PREDICTIONS,
+                    TEST_TARGETS=TEST_TARGETS,
+                    TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
+                ),
+                PREDS_STATE_FILENAME
+            )
             
         copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
 
