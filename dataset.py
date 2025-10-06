@@ -245,6 +245,25 @@ class Dataset:
             )
 
         else:
+
+            ### EXPERIMENT
+            E = data['edges'].astype(np.int64, copy=False)
+            idx_of = {tuple(e): i for i, e in enumerate(E)}
+            mask_keep = np.ones(len(E), dtype=bool)
+
+            for i, (u, v) in enumerate(E):
+                if not mask_keep[i]:
+                    continue
+                if (v, u) in idx_of:
+                    j = idx_of[(v, u)]
+                    mask_keep[i] = False
+                    mask_keep[j] = False 
+
+            E = E[mask_keep]
+            edges = torch.from_numpy(E)
+
+            ### EXPERIMENT
+
             graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
             if to_undirected:
                 graph = dgl.to_bidirected(graph)
