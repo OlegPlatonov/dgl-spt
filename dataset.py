@@ -253,8 +253,8 @@ class Dataset:
             raise ValueError('At most one of the graph edge processing arguments reverse_edges, to_undirected, '
                              'use_forward_and_reverse_edges_as_different_edge_types can be True.')
 
+        edges = torch.from_numpy(data['edges'])
 
-        edges = torch.from_numpy(E)
         if use_forward_and_reverse_edges_as_different_edge_types:
             if use_edge_index:
                 raise ValueError(
@@ -292,13 +292,12 @@ class Dataset:
 
             ### EXPERIMENT
 
-            # ablation 
+            ### ablation
             np.random.seed(42)
             E = data["edges"].copy()
             np.random.shuffle(E[:, 1])
-            print("[Ablation] Shuffled edges (seed=42)")
             edges = torch.from_numpy(E)
-            # ablation
+            ### ablation
 
             graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
             if to_undirected:
@@ -1087,4 +1086,4 @@ class Dataset:
                     )
                     skip_spatiotemporal_features = True
                     print("Loaded preprocessed memmap features from YT")
-        return spatiotemporal_features, spatiotemporal_feature_names, skip_spatiotemporal_features
+        return spatiotemporal_features, spatiotemporal_feature_names, skip_spatiotemporal_features#
