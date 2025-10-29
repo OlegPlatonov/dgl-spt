@@ -42,8 +42,8 @@ TEST_TARGETS_NAN_MASK = None
 
 def seed_everything(seed: int = 42):
     random.seed(seed)
-                                    
-    os.environ['CUBLAS_WORKSPACE_CONFIG'] = str(':4096:8')
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -1129,4 +1129,5 @@ def main():
 if __name__ == '__main__':
     SEED = int(os.environ.get("SEED", 0))
     seed_everything(SEED)
+
     main()
