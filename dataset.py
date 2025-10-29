@@ -293,10 +293,10 @@ class Dataset:
             ### EXPERIMENT
 
             ### ablation
-            np.random.seed(42)
-            E = data["edges"].copy()
-            np.random.shuffle(E[:, 1])
-            edges = torch.from_numpy(E)
+            # np.random.seed(42)
+            # E = data["edges"].copy()
+            # np.random.shuffle(E[:, 1])
+            # edges = torch.from_numpy(E)
             ### ablation
 
             graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)

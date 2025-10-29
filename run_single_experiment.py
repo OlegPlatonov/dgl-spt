@@ -2,6 +2,9 @@ import argparse
 from tqdm import tqdm
 from pathlib import Path
 from time import perf_counter
+import random
+import os
+import numpy as np
 
 import torch
 from torch.nn import functional as F
@@ -1116,4 +1119,5 @@ def main():
 
 
 if __name__ == '__main__':
+    seed_everything()
     main()
