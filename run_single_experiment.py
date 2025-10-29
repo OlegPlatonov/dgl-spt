@@ -2,6 +2,9 @@ import argparse
 from tqdm import tqdm
 from pathlib import Path
 from time import perf_counter
+import random
+import os
+import numpy as np
 
 import torch
 from torch.nn import functional as F
@@ -25,6 +28,18 @@ VAL_TARGETS = None
 TEST_TARGETS = None
 VAL_TARGETS_NAN_MASK = None
 TEST_TARGETS_NAN_MASK = None
+
+
+def seed_everything(seed: int = 42):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
@@ -709,4 +724,5 @@ def main():
 
 
 if __name__ == '__main__':
+    seed_everything()
     main()
