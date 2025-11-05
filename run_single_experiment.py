@@ -16,11 +16,16 @@ from utils import Logger, get_parameter_groups, DummyHandler, NirvanaStateHandle
 
 from nirvana_utils import copy_out_to_snapshot
 
+import random
+import os
+import numpy as np
 
 torch.set_float32_matmul_precision('high')
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
+
+SEED = int(os.environ.get("SEED", 0))
 
 VAL_PREDICTIONS = None
 TEST_PREDICTIONS = None
@@ -29,17 +34,15 @@ TEST_TARGETS = None
 VAL_TARGETS_NAN_MASK = None
 TEST_TARGETS_NAN_MASK = None
 
-
 def seed_everything(seed: int = 42):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
-    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = str(':4096:8')
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
 
 def get_args(add_name: bool = True):
     parser = argparse.ArgumentParser()
@@ -456,13 +459,6 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
           weight_decay, run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None,
           do_not_evaluate_on_test=False, nirvana=False, do_not_train=False,):
 
-    if seed is not None:
-        torch.manual_seed(seed)
-    elif nirvana:
-        raise ValueError(
-            'You must specify seed when training in Nirvana to ensure the same behaviour after every rescheduling.'
-        )
-
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True)
     val_timestamps_loader = DataLoader(dataset.val_timestamps, batch_size=dataset.eval_batch_size, shuffle=False,
@@ -577,6 +573,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
 def main():
     args, _ = get_args()
+    seed_everything(SEED)
 
     torch.set_num_threads(args.num_threads)
 
