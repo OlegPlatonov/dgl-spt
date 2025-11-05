@@ -20,9 +20,9 @@ import random
 import os
 import numpy as np
 
-torch.set_float32_matmul_precision('high')
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+# torch.set_float32_matmul_precision('high')
+# torch.backends.cuda.matmul.allow_tf32 = True
+# torch.backends.cudnn.allow_tf32 = True
 
 
 SEED = int(os.environ.get("SEED", 0))
