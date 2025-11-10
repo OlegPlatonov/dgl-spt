@@ -293,10 +293,10 @@ class Dataset:
             ### EXPERIMENT
 
             ### ablation
-            np.random.seed(42)
-            E = data["edges"].copy()
-            np.random.shuffle(E[:, 1])
-            edges = torch.from_numpy(E)
+            # np.random.seed(42)
+            # E = data["edges"].copy()
+            # np.random.shuffle(E[:, 1])
+            # edges = torch.from_numpy(E)
             ### ablation
 
             graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
@@ -982,12 +982,17 @@ class Dataset:
                         # train timestamps.
                         targets[:, targets_nan_mask.all(axis=0)] = np.nanmean(targets[train_slice])
 
-                if np.isnan(targets)[train_slice].all(axis=0).any():
-                    raise RuntimeError(
-                        'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
-                        'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
-                        'nodes) or set imputation_startegy_for_nan_targets argument to "zero".'
-                    )
+                # if np.isnan(targets)[train_slice].all(axis=0).any():
+                #     raise RuntimeError(
+                #         'There are nodes in the dataset for which all train targets are NaN. "prev" imputation strategy '
+                #         'for NaN targets cannot be applied in this case. Modify the dataset (e.g., by removing these '
+                #         'nodes) or set imputation_startegy_for_nan_targets argument to "zero".'
+                #     )
+
+                mask_allnan_train = np.isnan(targets)[train_slice].all(axis=0)  # [N] True там, где весь train = NaN
+                if mask_allnan_train.any():
+                    # 1) Проставляем таргеты = 0 для ВСЕХ времён (train/val/test) у таких узлов:
+                    targets[:, mask_allnan_train] = 0.0
 
                 # Now, we will impute NaN targets with the latest known target value by running forward fill.
                 targets_df = pd.DataFrame(targets, copy=False)
