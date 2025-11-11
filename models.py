@@ -305,11 +305,13 @@ class ResNetWithStructNFA(SingleInputModel):
 
         # + degree-фичи
         if self.struct_use_degree and self._has_ref_graph and graph is not None:
+            print("add degree, ", self.struct_use_degree, (graph is not None), (self._has_ref_graph), graph.num_edges())
             deg_feats = self._degree_features(graph)  # [B*N,2]
             parts.append(deg_feats)
 
         # + NFA-конкатенация
         if self.nfa_use and graph is not None and graph.num_edges() > 0:
+            print("add nfa, ", self.nfa_use, (graph is not None), graph.num_edges())
             if self.nfa_dirs in ("in", "both"):
                 parts.append(self._nfa_mean_in(graph, x0))
             if self.nfa_dirs in ("out", "both"):
