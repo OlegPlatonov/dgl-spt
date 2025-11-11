@@ -12,6 +12,8 @@ from abc import ABC, ABCMeta
 
 import torch
 import torch.nn as nn
+import dgl.function as fn
+import dgl
 
 from modules import (FeaturesPreparatorForDeepModels, ResidualModulesWrapper, FeedForwardModule,
                      NEIGHBORHOOD_AGGREGATION_MODULES, SEQUENCE_ENCODER_MODULES, NORMALIZATION_MODULES,
@@ -146,6 +148,186 @@ class ResNet(SingleInputModel):
         x = self.output_linear(x).squeeze(1)
 
         return x
+    
+
+class ResNetWithStructNFA(SingleInputModel):
+    """
+    ResNet + (опц.) структурные фичи узла (in/out degree, log-стабилиз., z-norm)
+          + (опц.) NFA — усреднение соседей по граничным направлениям ("in", "out", "both")
+    ПОД DGL: инициализация принимает DGL-граф (batched), forward тоже DGL-граф.
+    """
+    sequence_input = False
+
+    def __init__(self,
+                 normalization_name,
+                 num_residual_blocks,
+                 features_dim,
+                 hidden_dim,
+                 output_dim,
+                 dropout,
+                 use_learnable_node_embeddings,
+                 num_nodes,
+                 learnable_node_embeddings_dim,
+                 initialize_learnable_node_embeddings_with_deepwalk,
+                 deepwalk_node_embeddings,
+                 use_plr_for_numerical_features,
+                 numerical_features_mask,
+                 plr_numerical_features_frequencies_dim,
+                 plr_numerical_features_frequencies_scale,
+                 plr_numerical_features_embedding_dim,
+                 plr_numerical_features_shared_linear,
+                 plr_numerical_features_shared_frequencies,
+                 use_plr_for_past_targets,
+                 past_targets_mask,
+                 plr_past_targets_frequencies_dim,
+                 plr_past_targets_frequencies_scale,
+                 plr_past_targets_embedding_dim,
+                 plr_past_targets_shared_linear,
+                 plr_past_targets_shared_frequencies,
+                 edge_index_batched=None,
+                 struct_use_degree: bool = True,
+                 nfa_use: bool = True,
+                 nfa_dirs: str = "both",               # {"in","out","both"}
+                 **kwargs):
+        super().__init__()
+
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+
+        self.features_preparator = FeaturesPreparatorForDeepModels(
+            features_dim=features_dim,
+            use_learnable_node_embeddings=use_learnable_node_embeddings,
+            num_nodes=num_nodes,
+            learnable_node_embeddings_dim=learnable_node_embeddings_dim,
+            initialize_learnable_node_embeddings_with_deepwalk=initialize_learnable_node_embeddings_with_deepwalk,
+            deepwalk_node_embeddings=deepwalk_node_embeddings,
+            use_plr_for_numerical_features=use_plr_for_numerical_features,
+            numerical_features_mask=numerical_features_mask,
+            plr_numerical_features_frequencies_dim=plr_numerical_features_frequencies_dim,
+            plr_numerical_features_frequencies_scale=plr_numerical_features_frequencies_scale,
+            plr_numerical_features_embedding_dim=plr_numerical_features_embedding_dim,
+            plr_numerical_features_shared_linear=plr_numerical_features_shared_linear,
+            plr_numerical_features_shared_frequencies=plr_numerical_features_shared_frequencies,
+            use_plr_for_past_targets=use_plr_for_past_targets,
+            past_targets_mask=past_targets_mask,
+            plr_past_targets_frequencies_dim=plr_past_targets_frequencies_dim,
+            plr_past_targets_frequencies_scale=plr_past_targets_frequencies_scale,
+            plr_past_targets_embedding_dim=plr_past_targets_embedding_dim,
+            plr_past_targets_shared_linear=plr_past_targets_shared_linear,
+            plr_past_targets_shared_frequencies=plr_past_targets_shared_frequencies
+        )
+
+        self.num_nodes = num_nodes
+        self.struct_use_degree = struct_use_degree
+        self.nfa_use = nfa_use
+        self.nfa_dirs = nfa_dirs
+
+        # --- сохраним «референсный» батченый граф из инициализации, чтобы посчитать mean/std для степеней ---
+        # (если он None — просто отключим degree-фичи)
+        if isinstance(edge_index_batched, dgl.DGLGraph):
+            self.register_buffer("_deg_mean", torch.zeros(1, 2), persistent=False)
+            self.register_buffer("_deg_std",  torch.ones(1, 2),  persistent=False)
+            if self.struct_use_degree:
+                with torch.no_grad():
+                    din  = edge_index_batched.in_degrees().to(torch.float32).unsqueeze(1)   # [BN,1]
+                    dout = edge_index_batched.out_degrees().to(torch.float32).unsqueeze(1)  # [BN,1]
+                    d    = torch.cat([din, dout], dim=1)                                    # [BN,2]
+                    d    = torch.log1p(d)
+                    self._deg_mean.copy_(d.mean(dim=0, keepdim=True))
+                    self._deg_std.copy_(d.std (dim=0, keepdim=True).clamp_min(1e-6))
+            self._has_ref_graph = True
+        else:
+            self._has_ref_graph = False
+            self.register_buffer("_deg_mean", torch.zeros(1, 2), persistent=False)
+            self.register_buffer("_deg_std",  torch.ones(1, 2),  persistent=False)
+
+        # --- входное измерение: базовые фичи + (опц.) degree + (опц.) NFA-конкатенация ---
+        base_in = self.features_preparator.output_dim
+        if self.struct_use_degree and self._has_ref_graph:
+            base_in += 2
+
+        nfa_extra = 0
+        if self.nfa_use:
+            if self.nfa_dirs == "in":
+                nfa_extra = self.features_preparator.output_dim
+            elif self.nfa_dirs == "out":
+                nfa_extra = self.features_preparator.output_dim
+            elif self.nfa_dirs == "both":
+                nfa_extra = 2 * self.features_preparator.output_dim
+            else:
+                raise ValueError("nfa_dirs must be one of {'in','out','both'}")
+
+        input_dim = base_in + nfa_extra
+
+        # --- дальше как в ResNet ---
+        self.input_linear = nn.Linear(input_dim, hidden_dim)
+        self.dropout = nn.Dropout(p=dropout)
+        self.act = nn.GELU()
+
+        self.residual_modules = nn.ModuleList([
+            ResidualModulesWrapper(
+                modules=[NormalizationModule(hidden_dim),
+                         FeedForwardModule(dim=hidden_dim, dropout=dropout)]
+            ) for _ in range(num_residual_blocks)
+        ])
+
+        self.output_normalization = NormalizationModule(hidden_dim)
+        self.output_linear = nn.Linear(hidden_dim, output_dim)
+
+    @torch.no_grad()
+    def _degree_features(self, g: dgl.DGLGraph) -> torch.Tensor:
+        """Вернёт [BN,2] = z-norm(log1p(in_deg), log1p(out_deg)) по текущему батченому графу."""
+        din  = g.in_degrees().to(torch.float32).unsqueeze(1)
+        dout = g.out_degrees().to(torch.float32).unsqueeze(1)
+        d    = torch.cat([din, dout], dim=1)
+        d    = torch.log1p(d)
+        # нормируем теми же статистиками, что сняли при инициализации
+        return (d - self._deg_mean.to(d.device)) / self._deg_std.to(d.device)
+
+    def _nfa_mean_in(self, g: dgl.DGLGraph, x0: torch.Tensor) -> torch.Tensor:
+        """Среднее по входящим соседям (src->dst): update_all(copy_u, mean)."""
+        with g.local_scope():
+            g.ndata["h"] = x0
+            g.update_all(fn.copy_u("h", "m"), fn.mean("m", "h_in"))
+            return g.ndata.pop("h_in")
+
+    def _nfa_mean_out(self, g: dgl.DGLGraph, x0: torch.Tensor) -> torch.Tensor:
+        """Среднее по исходящим соседям: делаем reverse и считаем mean по входящим."""
+        gr = dgl.reverse(g, copy_ndata=False)
+        with gr.local_scope():
+            gr.ndata["h"] = x0
+            gr.update_all(fn.copy_u("h", "m"), fn.mean("m", "h_in"))
+            return gr.ndata.pop("h_in")
+
+    def forward(self, graph: dgl.DGLGraph, x):
+        # x: [B*N, F_raw]
+        x0 = self.features_preparator(x)   # [B*N, F0]
+        parts = [x0]
+
+        # + degree-фичи
+        if self.struct_use_degree and self._has_ref_graph and graph is not None:
+            deg_feats = self._degree_features(graph)  # [B*N,2]
+            parts.append(deg_feats)
+
+        # + NFA-конкатенация
+        if self.nfa_use and graph is not None and graph.num_edges() > 0:
+            if self.nfa_dirs in ("in", "both"):
+                parts.append(self._nfa_mean_in(graph, x0))
+            if self.nfa_dirs in ("out", "both"):
+                parts.append(self._nfa_mean_out(graph, x0))
+
+        x = torch.cat(parts, dim=1)
+
+        x = self.input_linear(x)
+        x = self.dropout(x)
+        x = self.act(x)
+
+        for rm in self.residual_modules:
+            x = rm(graph, x)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)  # [B*N, targets_dim]
+        return x
+
 
 
 class SingleInputGNN(SingleInputModel):

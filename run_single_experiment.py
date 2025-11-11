@@ -184,7 +184,7 @@ def get_args(add_name: bool = True):
 
     # Model type selection.
     parser.add_argument('--model_class', type=str, default='SingleInputGNN',
-                        choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN', 'BaselineModel'])
+                        choices=['LinearModel', 'ResNet', 'SingleInputGNN', 'SequenceInputGNN', 'BaselineModel', "ResNetWithStructNFA"])
     parser.add_argument('--neighborhood_aggregation', type=str, default='MeanAggr',
                         choices=['MeanAggr', 'MaxAggr', 'GCNAggr', 'AttnGATAggr', 'AttnTrfAggr'],
                         help='Graph neighborhood aggregation (aka message passing) function for GNNs. '
@@ -226,6 +226,12 @@ def get_args(add_name: bool = True):
                         help='Dilation for temporal convolutions.')
     parser.add_argument('--spatial_kernel_size', type=int, default=2,
                         help='Kernel size for spatial convolutions.')
+    
+    # RESNET parametrs
+    parser.add_argument('--struct_use_degree', action='store_true', default=True)
+    parser.add_argument('--nfa_use', action='store_true', default=True)
+    parser.add_argument('--nfa_dirs', type=str, choices=['in','out','both'], default='both')
+
 
     # Common parameters (not baselines-exclusively)
     parser.add_argument('--hidden_dim', type=int, default=512,
@@ -669,7 +675,7 @@ def main():
             use_learnable_node_embeddings=args.use_learnable_node_embeddings,
             num_nodes=dataset.num_nodes,
             batch_size=dataset.train_batch_size,
-            edge_index_batched=dataset.train_batched_graph if use_edge_index else None,
+            edge_index_batched=dataset.train_batched_graph if (use_edge_index  or args.model_class == 'ResNetWithStructNFA') else None,
             learnable_node_embeddings_dim=args.learnable_node_embeddings_dim,
             initialize_learnable_node_embeddings_with_deepwalk=args.initialize_learnable_node_embeddings_with_deepwalk,
             deepwalk_node_embeddings=dataset.deepwalk_embeddings_for_initializing_learnable_embeddings,
