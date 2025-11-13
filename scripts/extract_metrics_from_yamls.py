@@ -33,48 +33,51 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
 
         args["experiment_name"] = args.pop("name")
 
+        simple_metrics = [
+            "elapsed_time",
+            "max_memory_allocated",
+            "max_memory_allocated_mb",
+        ]
 
-        metric_field_to_pulsar_unified = {
-            f'val {metric_name} mean': "val_metric_mean",
-            f'val {metric_name} std': "val_metric_std",
-            f'test {metric_name} mean': "test_metric_mean",
-            f'test {metric_name} std': "test_metric_std",
-            "elapsed_time": "elapsed_time",
-            "max_memory_allocated": "max_memory_allocated",
-            "max_memory_allocated_mb": "max_memory_allocated_mb",
-            "best_val_metric": "best_val_metric",
-            "best_test_metric": "best_test_metric",
-        }
+        nested_metrics = [
+            "val_metrics_min",
+            "val_metrics_max",
+            "test_metrics_min",
+            "test_metrics_max",
+            "val_metrics_mean",
+            "val_metrics_std",
+            "test_metrics_mean",
+            "test_metrics_std",
+        ]
 
-        # metrics_dict_for_run = args
 
-        for metric_in_script, metric_for_pulsar_corresponding_name in sorted(metric_field_to_pulsar_unified.items()):
-            if metric_in_script not in metrics:
-                continue
-
-            metric_value = float(metrics[metric_in_script])
+        for metric_type in simple_metrics:
+            metric_value = float(metrics[metric_type])
             metric_value = metric_value if not np.isnan(metric_value) else -1.0
-            
-            # metrics_dict_for_run[metric_for_pulsar_corresponding_name] = v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v v vv v vvvvv v vv vv v v 
             
             pulsar_metric_dict = dict(
                 value=metric_value,
-                name=metric_for_pulsar_corresponding_name,
+                name=metric_type,
                 **args,
             )
 
             results.append(pulsar_metric_dict)
 
-        # # add best metric:
-        # metrics_values_field = f"val {metric_name} values"
-        # if metrics_values_field in metrics:
-        #     metrics_list = metrics[metrics_values_field]
-        #     best_metric = min(metrics_list)
-        #     results.append(dict(
-        #         value=best_metric,
-        #         name="best_val_metric",
-        #         **args,
-        #     ))
+
+
+        for metric_type in nested_metrics:
+            metric_type_dict = metrics[metric_type]
+            for metric_type_name, metric_value in metric_type_dict.items():
+                # metric_value = float(metrics[metric_name])
+                metric_value = metric_value if not np.isnan(metric_value) else -1.0
+                
+                pulsar_metric_dict = dict(
+                    value=metric_value,
+                    name=f"{metric_type} {metric_type_name}",
+                    **args,
+                )
+
+                results.append(pulsar_metric_dict)
 
     except FileNotFoundError:
         pass
@@ -86,4 +89,4 @@ if ndl:
     with open(ndl.json_output_file(), "w") as f_write:
         json.dump(results, f_write, indent=4)
 else:
-    print(results)
+    print(json.dumps(results, indent=4))
