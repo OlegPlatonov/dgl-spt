@@ -315,11 +315,13 @@ def optimizer_step(optimizer, gradscaler):
     optimizer.zero_grad()
 
 
-def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True):
+def compute_metrics(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True):
+    """Computes MAPE, MAE, RMSE, MSE, R^2"""
+
     targets_transformed = targets.clone()
 
     if len(preds) < dataset.eval_max_num_timestamps_per_step:
-        # Loss can be computed on GPU in one step.
+        # Metrics can be computed on GPU in one step.
 
         preds = preds.to(dataset.device)
         if apply_transform_to_preds:
@@ -330,19 +332,79 @@ def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, a
         targets = targets.to(dataset.device)
         targets_nan_mask = targets_nan_mask.to(dataset.device)
 
+        # Create mask for valid (non-NaN) values
+        valid_mask = ~targets_nan_mask
+        
+        # Compute absolute and squared differences
+        abs_diff = torch.abs(preds - targets)
+        squared_diff = (preds - targets) ** 2
+        
+        # Zero out NaN positions
+        abs_diff[targets_nan_mask] = 0
+        squared_diff[targets_nan_mask] = 0
+        
+        # Count valid elements
+        num_valid = valid_mask.sum()
+        
+        # Compute MAE and MSE
+        mae = abs_diff.sum() / num_valid
+        mse = squared_diff.sum() / num_valid
+        rmse = torch.sqrt(mse)
+        
+        # Compute MAPE (avoiding division by zero)
+        # Only compute where targets are non-zero
+        targets_nonzero_mask = (targets != 0) & valid_mask
+        if targets_nonzero_mask.sum() > 0:
+            percentage_errors = torch.abs((targets - preds) / targets) * 100
+            percentage_errors[~targets_nonzero_mask] = 0
+            mape = percentage_errors.sum() / targets_nonzero_mask.sum()
+        else:
+            mape = torch.tensor(float('nan'))
+        
+        # Compute R^2
+        targets_mean = targets[valid_mask].mean()
+        ss_tot = ((targets - targets_mean) ** 2)
+        ss_tot[targets_nan_mask] = 0
+        ss_tot = ss_tot.sum()
+        ss_res = squared_diff.sum()
+        
+        if ss_tot > 0:
+            r2 = 1 - (ss_res / ss_tot)
+        else:
+            r2 = torch.tensor(float('nan'))
+
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
-        loss_mean = loss.sum() / (~targets_nan_mask).sum()
-
+        loss_mean = loss.sum() / num_valid
     else:
-        # Computing loss on GPU will be done in multiple steps.
+        # Computing metrics on GPU will be done in multiple steps.
         preds_transformed = dataset.transform_preds_for_metrics(preds.to(dataset.device)) if apply_transform_to_preds else preds.clone()
         preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
         preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
                                           shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
 
         loss_sum = 0
-        loss_count = 0
+        abs_diff_sum = 0
+        squared_diff_sum = 0
+        percentage_error_sum = 0
+        ss_res_sum = 0
+        ss_tot_sum = 0
+        num_valid_total = 0
+        num_nonzero_total = 0
+        targets_sum = 0
+
+        # First pass: compute means
+        for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
+            cur_targets = cur_targets.to(dataset.device)
+            cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
+            cur_valid_mask = ~cur_targets_nan_mask
+            
+            targets_sum += cur_targets[cur_valid_mask].sum()
+            num_valid_total += cur_valid_mask.sum()
+        
+        targets_mean = targets_sum / num_valid_total
+        
+        # Second pass: compute all metrics
         for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
             cur_preds = cur_preds.to(dataset.device)
             if apply_transform_to_preds:
@@ -350,22 +412,63 @@ def compute_metric(preds, targets, targets_nan_mask, dataset, loss_fn, metric, a
 
             cur_targets = cur_targets.to(dataset.device)
             cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
+            cur_valid_mask = ~cur_targets_nan_mask
 
+            # Absolute and squared differences
+            cur_abs_diff = torch.abs(cur_preds - cur_targets)
+            cur_squared_diff = (cur_preds - cur_targets) ** 2
+            cur_abs_diff[cur_targets_nan_mask] = 0
+            cur_squared_diff[cur_targets_nan_mask] = 0
+            
+            abs_diff_sum += cur_abs_diff.sum()
+            squared_diff_sum += cur_squared_diff.sum()
+            
+            # MAPE computation
+            cur_targets_nonzero_mask = (cur_targets != 0) & cur_valid_mask
+            if cur_targets_nonzero_mask.sum() > 0:
+                cur_percentage_errors = torch.abs((cur_targets - cur_preds) / cur_targets) * 100
+                cur_percentage_errors[~cur_targets_nonzero_mask] = 0
+                percentage_error_sum += cur_percentage_errors.sum()
+                num_nonzero_total += cur_targets_nonzero_mask.sum()
+            
+            # R^2 computation
+            cur_ss_tot = ((cur_targets - targets_mean) ** 2)
+            cur_ss_tot[cur_targets_nan_mask] = 0
+            ss_tot_sum += cur_ss_tot.sum()
+            ss_res_sum += cur_squared_diff.sum()
+
+            # Loss computation
             cur_loss = loss_fn(input=cur_preds, target=cur_targets, reduction='none')
             cur_loss[cur_targets_nan_mask] = 0
-            cur_loss_sum = cur_loss.sum()
-            cur_loss_count = (~cur_targets_nan_mask).sum()
+            loss_sum += cur_loss.sum()
 
-            loss_sum += cur_loss_sum
-            loss_count += cur_loss_count
+        # Compute final metrics
+        mae = abs_diff_sum / num_valid_total
+        mse = squared_diff_sum / num_valid_total
+        rmse = torch.sqrt(mse)
+        
+        if num_nonzero_total > 0:
+            mape = percentage_error_sum / num_nonzero_total
+        else:
+            mape = torch.tensor(float('nan'))
+        
+        if ss_tot_sum > 0:
+            r2 = 1 - (ss_res_sum / ss_tot_sum)
+        else:
+            r2 = torch.tensor(float('nan'))
+        
+        loss_mean = loss_sum / num_valid_total
 
+    metrics = {
+        "MSE": mse.item(),
+        "RMSE": rmse.item(),
+        "MAE": mae.item(),
+        "MAPE": mape.item(),
+        "R2": r2.item(),
+        "loss": loss_mean.item()
+    }
 
-
-        loss_mean = loss_sum / loss_count
-
-    metric = loss_mean.sqrt().item() if metric == 'RMSE' else loss_mean.item()
-
-    return metric, preds_transformed, targets_transformed
+    return metrics, preds_transformed, targets_transformed
 
 
 @torch.no_grad()
@@ -408,8 +511,11 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
     else:
         raise ValueError(f'Unknown split: {split}. Split argument should be either val or test.')
 
-    metric, preds_transformed, targets_transformed = compute_metric(preds=preds, targets=targets, targets_nan_mask=targets_nan_mask, dataset=dataset,
+    metrics, preds_transformed, targets_transformed = compute_metrics(preds=preds, targets=targets, targets_nan_mask=targets_nan_mask, dataset=dataset,
                             loss_fn=loss_fn, metric=metric, apply_transform_to_preds=True)
+    metrics_updated_prefix = {}
+    for metric_name, value in metrics.items():
+        metrics_updated_prefix[f"{split} {metric_name}"] = value
 
     if split == 'val':
         VAL_PREDICTIONS = preds_transformed
@@ -420,23 +526,23 @@ def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, m
         TEST_TARGETS = targets_transformed
         TEST_TARGETS_NAN_MASK = targets_nan_mask
 
-    return metric
+    return metrics_updated_prefix
 
 
 @torch.no_grad()
 def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss_fn, metric, amp=True,
              do_not_evaluate_on_test=False):
     metrics = {}
-    val_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
+    val_metrics = evaluate_on_val_or_test(model=model, dataset=dataset, split='val',
                                          timestamps_loader=val_timestamps_loader, loss_fn=loss_fn,
                                          metric=metric, amp=amp)
-    metrics[f'val {metric}'] = val_metric
+    metrics.update(val_metrics)
 
     if not do_not_evaluate_on_test:
-        test_metric = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
+        test_metrics = evaluate_on_val_or_test(model=model, dataset=dataset, split='test',
                                               timestamps_loader=test_timestamps_loader, loss_fn=loss_fn,
                                               metric=metric, amp=amp)
-        metrics[f'test {metric}'] = test_metric
+        metrics.update(test_metrics)
 
     return metrics
 

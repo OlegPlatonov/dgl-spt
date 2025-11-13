@@ -19,16 +19,22 @@ class Logger:
             dataset_name = args.dataset
 
         self.nirvana = args.nirvana
-        self.metric = args.metric
+        self.primary_metric = args.metric  # Renamed from self.metric for clarity
         self.do_not_evaluate_on_test = args.do_not_evaluate_on_test
-        self.val_metrics = []
+        
+        # store dictionaries of all metrics instead of single values
+        self.val_metrics = []  # List of dicts: [{'RMSE': 0.5, 'MAE': 0.3, ...}, ...]
         self.test_metrics = None if args.do_not_evaluate_on_test else []
+        
+        # Keep track of best primary metric values for each run
+        self.best_val_primary_metrics = []  # List of single values for primary metric
+        self.best_test_primary_metrics = None if args.do_not_evaluate_on_test else []
+        
         self.best_steps = []
         self.best_epochs = []
         self.num_runs = args.num_runs
         self.cur_run = None
         self.in_nirvana = args.nirvana
-
 
         if start_from_scratch:
             self.save_dir = self.get_save_dir(base_dir=args.save_dir, dataset_name=dataset_name, experiment_name=args.name)
@@ -47,7 +53,9 @@ class Logger:
 
         self._start_time = perf_counter()
 
-    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, save_dir, current_run_already_started, elapsed_time, max_memory_allocated):
+    def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, 
+                                         save_dir, current_run_already_started, elapsed_time, max_memory_allocated,
+                                         best_val_primary_metrics=None, best_test_primary_metrics=None):
         self.val_metrics = val_metrics
         self.test_metrics = test_metrics
         self.cur_run = cur_run
@@ -57,10 +65,25 @@ class Logger:
         self.current_run_already_started = current_run_already_started
         self.elapsed_time = elapsed_time
         self.max_memory_allocated = max_memory_allocated
+        
+        # Handle backward compatibility: if old checkpoint doesn't have these, reconstruct them
+        if best_val_primary_metrics is not None:
+            self.best_val_primary_metrics = best_val_primary_metrics
+        else:
+            # Reconstruct from val_metrics if loading old checkpoint
+            self.best_val_primary_metrics = [m.get(f'val {self.primary_metric}') if isinstance(m, dict) else m 
+                                             for m in val_metrics]
+        
+        if best_test_primary_metrics is not None:
+            self.best_test_primary_metrics = best_test_primary_metrics
+        elif not self.do_not_evaluate_on_test:
+            self.best_test_primary_metrics = [m.get(f'test {self.primary_metric}') if isinstance(m, dict) else m 
+                                              for m in test_metrics]
+        
         print(f"Logging will be resumed at save directory {self.save_dir}")
 
     def _update_timer_and_torch_monitor(self):
-        # elapsed is updated_here:
+        # elapsed is updated here:
         time_spent_after_last_elapse = perf_counter() - self._start_time
         self.elapsed_time += time_spent_after_last_elapse
         self._start_time = perf_counter()
@@ -79,6 +102,8 @@ class Logger:
             current_run_already_started=self.current_run_already_started,
             elapsed_time=self.elapsed_time,
             max_memory_allocated=self.max_memory_allocated,
+            best_val_primary_metrics=self.best_val_primary_metrics,
+            best_test_primary_metrics=self.best_test_primary_metrics,
         )
 
     def start_run(self, run):
@@ -93,6 +118,10 @@ class Logger:
             if not self.do_not_evaluate_on_test:
                 self.test_metrics.append(None)
 
+            self.best_val_primary_metrics.append(None)
+            if not self.do_not_evaluate_on_test:
+                self.best_test_primary_metrics.append(None)
+
             self.best_steps.append(None)
             self.best_epochs.append(None)
 
@@ -101,10 +130,33 @@ class Logger:
             print(f'Resuming run {run}/{self.num_runs}...')
 
     def update_metrics(self, metrics, step, epoch):
-        if self.val_metrics[-1] is None or metrics[f'val {self.metric}'] < self.val_metrics[-1]:
-            self.val_metrics[-1] = metrics[f'val {self.metric}']
+        """
+        Update metrics for current run. Uses primary_metric to determine best checkpoint.
+        
+        Args:
+            metrics: Dictionary with keys like 'val RMSE', 'val MAE', 'test RMSE', etc.
+            step: Current optimizer step
+            epoch: Current epoch
+        """
+        # Extract validation and test metrics
+        val_metrics_dict = {k.replace('val ', ''): v for k, v in metrics.items() if k.startswith('val ')}
+        
+        primary_metric_key = f'val {self.primary_metric}'
+        if primary_metric_key not in metrics:
+            raise KeyError(f"Primary metric '{primary_metric_key}' not found in metrics. Available: {list(metrics.keys())}")
+        
+        current_val_primary = metrics[primary_metric_key]
+        
+        # Check if this is the best checkpoint based on primary metric
+        if self.best_val_primary_metrics[-1] is None or current_val_primary < self.best_val_primary_metrics[-1]:
+            # Update best metrics
+            self.best_val_primary_metrics[-1] = current_val_primary
+            self.val_metrics[-1] = val_metrics_dict.copy()
+            
             if not self.do_not_evaluate_on_test:
-                self.test_metrics[-1] = metrics[f'test {self.metric}']
+                test_metrics_dict = {k.replace('test ', ''): v for k, v in metrics.items() if k.startswith('test ')}
+                self.test_metrics[-1] = test_metrics_dict.copy()
+                self.best_test_primary_metrics[-1] = metrics[f'test {self.primary_metric}']
 
             self.best_steps[-1] = step
             self.best_epochs[-1] = epoch
@@ -115,77 +167,167 @@ class Logger:
 
         if self.do_not_evaluate_on_test:
             print(f'Finished run {self.cur_run}. '
-                  f'Best val {self.metric}: {self.val_metrics[-1]:.4f} '
-                  f'(step {self.best_steps[-1]}, epoch {self.best_epochs[-1]}).\n')
+                  f'Best val {self.primary_metric}: {self.best_val_primary_metrics[-1]:.4f} '
+                  f'(step {self.best_steps[-1]}, epoch {self.best_epochs[-1]}).')
+            
+            # Print all validation metrics for best checkpoint
+            print(f'All validation metrics at best checkpoint:')
+            for metric_name, value in self.val_metrics[-1].items():
+                print(f'  {metric_name}: {value:.4f}')
+            print()
 
         else:
             print(f'Finished run {self.cur_run}. '
-                  f'Best val {self.metric}: {self.val_metrics[-1]:.4f}, '
-                  f'corresponding test {self.metric}: {self.test_metrics[-1]:.4f} '
-                  f'(step {self.best_steps[-1]}, epoch {self.best_epochs[-1]}).\n')
+                  f'Best val {self.primary_metric}: {self.best_val_primary_metrics[-1]:.4f}, '
+                  f'corresponding test {self.primary_metric}: {self.best_test_primary_metrics[-1]:.4f} '
+                  f'(step {self.best_steps[-1]}, epoch {self.best_epochs[-1]}).')
+            
+            # Print all metrics for best checkpoint
+            print(f'All metrics at best checkpoint:')
+            print(f'  Validation:')
+            for metric_name, value in self.val_metrics[-1].items():
+                print(f'    {metric_name}: {value:.4f}')
+            print(f'  Test:')
+            for metric_name, value in self.test_metrics[-1].items():
+                print(f'    {metric_name}: {value:.4f}')
+            print()
 
     def save_metrics(self):
         self._update_timer_and_torch_monitor()
         num_runs = len(self.val_metrics)
 
-        val_metric_mean = np.mean(self.val_metrics).item()
-        val_metric_std = np.std(self.val_metrics, ddof=1).item() if len(self.val_metrics) > 1 else np.nan
-        best_val_metric = np.min(self.val_metrics).item()
+        # Compute statistics for primary metric
+        val_primary_mean = np.mean(self.best_val_primary_metrics).item()
+        val_primary_std = np.std(self.best_val_primary_metrics, ddof=1).item() if len(self.best_val_primary_metrics) > 1 else np.nan
+        best_val_primary = np.min(self.best_val_primary_metrics).item()
+        
+        # Compute statistics for all metrics across runs
+        val_metrics_aggregated = self._aggregate_metrics_across_runs(self.val_metrics)
+        
+        metrics_dict = {
+            'num runs': num_runs,
+            'primary_metric': self.primary_metric,
+            
+            # Primary metric statistics (for backward compatibility)
+            f'val {self.primary_metric} mean': val_primary_mean,
+            f'val {self.primary_metric} std': val_primary_std,
+            f'best val {self.primary_metric}': best_val_primary,
+            
+            # All validation metrics aggregated
+            'val_metrics_mean': val_metrics_aggregated['mean'],
+            'val_metrics_std': val_metrics_aggregated['std'],
+            'val_metrics_min': val_metrics_aggregated['min'],
+            'val_metrics_max': val_metrics_aggregated['max'],
+            
+            # Raw values for each run
+            'val_metrics_per_run': self.val_metrics,
+            'best_val_primary_metric_per_run': self.best_val_primary_metrics,
+            
+            # Metadata
+            'best steps': self.best_steps,
+            'best epochs': self.best_epochs,
+            'elapsed_time': self.elapsed_time,
+            'max_memory_allocated': self.max_memory_allocated,
+            'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
+        }
 
         if not self.do_not_evaluate_on_test:
-            test_metric_mean = np.mean(self.test_metrics).item()
-            test_metric_std = np.std(self.test_metrics, ddof=1).item() if len(self.test_metrics) > 1 else np.nan
-            best_test_metric = np.min(self.test_metrics).item()
-
-            metrics = {
-                'num runs': num_runs,
-                f'val {self.metric} mean': val_metric_mean,
-                f'val {self.metric} std': val_metric_std,
-                f'test {self.metric} mean': test_metric_mean,
-                f'test {self.metric} std': test_metric_std,
-                f'val {self.metric} values': self.val_metrics,
-                f'test {self.metric} values': self.test_metrics,
-                'elapsed_time': self.elapsed_time,
-                'best steps': self.best_steps,
-                'best epochs': self.best_epochs,
-                'max_memory_allocated': self.max_memory_allocated,
-                'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
-                'best_val_metric': best_val_metric,
-                'best_test_metric': best_test_metric,
-            }
-
-        else:
-            metrics = {
-                'num runs': num_runs,
-                f'val {self.metric} mean': val_metric_mean,
-                f'val {self.metric} std': val_metric_std,
-                f'val {self.metric} values': self.val_metrics,
-                'best steps': self.best_steps,
-                'best epochs': self.best_epochs,
-                'elapsed_time': self.elapsed_time,
-                'max_memory_allocated': self.max_memory_allocated,
-                'max_memory_allocated_mb': self.max_memory_allocated // 2 ** 20,
-                'best_val_metric': best_val_metric,
-            }
+            test_primary_mean = np.mean(self.best_test_primary_metrics).item()
+            test_primary_std = np.std(self.best_test_primary_metrics, ddof=1).item() if len(self.best_test_primary_metrics) > 1 else np.nan
+            best_test_primary = np.min(self.best_test_primary_metrics).item()
+            
+            test_metrics_aggregated = self._aggregate_metrics_across_runs(self.test_metrics)
+            
+            metrics_dict.update({
+                # Primary metric statistics (for backward compatibility)
+                f'test {self.primary_metric} mean': test_primary_mean,
+                f'test {self.primary_metric} std': test_primary_std,
+                f'best test {self.primary_metric}': best_test_primary,
+                
+                # All test metrics aggregated
+                'test_metrics_mean': test_metrics_aggregated['mean'],
+                'test_metrics_std': test_metrics_aggregated['std'],
+                'test_metrics_min': test_metrics_aggregated['min'],
+                'test_metrics_max': test_metrics_aggregated['max'],
+                
+                # Raw values for each run
+                'test_metrics_per_run': self.test_metrics,
+                'best_test_primary_metric_per_run': self.best_test_primary_metrics,
+            })
 
         with open(os.path.join(self.save_dir, 'metrics.yaml'), 'w') as file:
-            yaml.safe_dump(metrics, file, sort_keys=False)
+            yaml.safe_dump(metrics_dict, file, sort_keys=False)
+
+    def _aggregate_metrics_across_runs(self, metrics_list):
+        """Aggregate metrics across multiple runs.
+        
+        Args:
+            metrics_list: List of dicts, one per run
+            
+        Returns:
+            Dict with 'mean', 'std', 'min', 'max' for each metric
+        """
+        if not metrics_list or metrics_list[0] is None:
+            return {'mean': {}, 'std': {}, 'min': {}, 'max': {}}
+        
+        # Get all metric names from first run
+        metric_names = list(metrics_list[0].keys())
+        
+        aggregated = {
+            'mean': {},
+            'std': {},
+            'min': {},
+            'max': {}
+        }
+        
+        for metric_name in metric_names:
+            values = [run_metrics[metric_name] for run_metrics in metrics_list if run_metrics is not None]
+            
+            if values:
+                aggregated['mean'][metric_name] = np.mean(values).item()
+                aggregated['std'][metric_name] = np.std(values, ddof=1).item() if len(values) > 1 else np.nan
+                aggregated['min'][metric_name] = np.min(values).item()
+                aggregated['max'][metric_name] = np.max(values).item()
+        
+        return aggregated
 
     def print_metrics_summary(self):
         with open(os.path.join(self.save_dir, 'metrics.yaml'), 'r') as file:
             metrics = yaml.safe_load(file)
 
-        print(f'Finished {metrics["num runs"]} runs.')
-        print(f'Val {self.metric} mean: {metrics[f"val {self.metric} mean"]:.4f}')
-        print(f'Val {self.metric} std: {metrics[f"val {self.metric} std"]:.4f}')
-
+        print(f'\n{"="*80}')
+        print(f'METRICS SUMMARY - {metrics["num runs"]} runs completed')
+        print(f'{"="*80}')
+        
+        primary_metric = metrics.get('primary_metric', self.primary_metric)
+        
+        print(f'\nPrimary Metric: {primary_metric}')
+        print(f'-' * 40)
+        print(f'Val {primary_metric} mean: {metrics[f"val {primary_metric} mean"]:.4f} ± {metrics[f"val {primary_metric} std"]:.4f}')
+        
         if not self.do_not_evaluate_on_test:
-            print(f'Test {self.metric} mean: {metrics[f"test {self.metric} mean"]:.4f}')
-            print(f'Test {self.metric} std: {metrics[f"test {self.metric} std"]:.4f}')
-
-        print(f'Elapsed time: {self.elapsed_time}')
-        print(f'Max memory allocated: {self.max_memory_allocated} bytes')
-        print(f'Max memory allocated: {self.max_memory_allocated // 2 ** 20} megabytes')
+            print(f'Test {primary_metric} mean: {metrics[f"test {primary_metric} mean"]:.4f} ± {metrics[f"test {primary_metric} std"]:.4f}')
+        
+        # Print all validation metrics
+        print(f'\nAll Validation Metrics (mean ± std):')
+        print(f'-' * 40)
+        for metric_name, mean_val in metrics['val_metrics_mean'].items():
+            std_val = metrics['val_metrics_std'][metric_name]
+            print(f'{metric_name:8s}: {mean_val:.4f} ± {std_val:.4f}')
+        
+        # Print all test metrics if available
+        if not self.do_not_evaluate_on_test:
+            print(f'\nAll Test Metrics (mean ± std):')
+            print(f'-' * 40)
+            for metric_name, mean_val in metrics['test_metrics_mean'].items():
+                std_val = metrics['test_metrics_std'][metric_name]
+                print(f'{metric_name:8s}: {mean_val:.4f} ± {std_val:.4f}')
+        
+        print(f'\nTraining Info:')
+        print(f'-' * 40)
+        print(f'Elapsed time: {metrics["elapsed_time"]:.2f} seconds')
+        print(f'Max memory allocated: {metrics["max_memory_allocated_mb"]} MB')
+        print(f'{"="*80}\n')
 
     @staticmethod
     def get_save_dir(base_dir, dataset_name, experiment_name):
@@ -322,8 +464,6 @@ class StateHandler:
         pass
 
 
-# TODO check that the model is the same after being passed here
-# TODO checkpoint handling
 class NirvanaStateHandler(StateHandler):
 
     def __init__(self, checkpoint_file_path: Path, checkpoint_dir: Path, checkpoint_steps_interval: int) -> None:
