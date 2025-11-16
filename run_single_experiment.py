@@ -329,151 +329,132 @@ def optimizer_step(optimizer, gradscaler):
     optimizer.zero_grad()
 
 
-def compute_metrics(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True):
-    """Computes MAPE, MAE, RMSE, MSE, R^2"""
-
+def compute_metrics(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True,
+                   eval_timestamps=[3, 5, 11]):
+    """
+    Computes MAPE, MAE, RMSE, MSE, R^2 both overall and at specific timestamps.
+    
+    Args:
+        preds: Predictions tensor, shape [num_samples, num_timestamps, ...]
+        targets: Targets tensor, shape [num_samples, num_timestamps, ...]
+        targets_nan_mask: NaN mask, shape [num_samples, num_timestamps, ...]
+        dataset: Dataset object
+        loss_fn: Loss function
+        metric: Primary metric name (for backward compatibility)
+        apply_transform_to_preds: Whether to apply transformation to predictions
+        eval_timestamps: List of timestamp indices to evaluate separately (default: [3, 5, 11])
+                        Corresponds to [5min, 30min, 60min] forward
+    
+    Returns:
+        metrics: Dictionary with overall metrics and per-timestamp metrics
+        preds_transformed: Transformed predictions
+        targets_transformed: Targets (cloned)
+    """
     targets_transformed = targets.clone()
 
     if len(preds) < dataset.eval_max_num_timestamps_per_step:
         # Metrics can be computed on GPU in one step.
-
+        metrics = _compute_metrics_single_batch(
+            preds=preds,
+            targets=targets,
+            targets_nan_mask=targets_nan_mask,
+            dataset=dataset,
+            loss_fn=loss_fn,
+            apply_transform_to_preds=apply_transform_to_preds,
+            eval_timestamps=eval_timestamps
+        )
+        
         preds = preds.to(dataset.device)
         if apply_transform_to_preds:
             preds = dataset.transform_preds_for_metrics(preds)
-
         preds_transformed = preds.cpu().clone()
 
-        targets = targets.to(dataset.device)
-        targets_nan_mask = targets_nan_mask.to(dataset.device)
-
-        # Create mask for valid (non-NaN) values
-        valid_mask = ~targets_nan_mask
-        
-        # Compute absolute and squared differences
-        abs_diff = torch.abs(preds - targets)
-        squared_diff = (preds - targets) ** 2
-        
-        # Zero out NaN positions
-        abs_diff[targets_nan_mask] = 0
-        squared_diff[targets_nan_mask] = 0
-        
-        # Count valid elements
-        num_valid = valid_mask.sum()
-        
-        # Compute MAE and MSE
-        mae = abs_diff.sum() / num_valid
-        mse = squared_diff.sum() / num_valid
-        rmse = torch.sqrt(mse)
-        
-        # Compute MAPE (avoiding division by zero)
-        # Only compute where targets are non-zero
-        targets_nonzero_mask = (targets != 0) & valid_mask
-        if targets_nonzero_mask.sum() > 0:
-            percentage_errors = torch.abs((targets - preds) / targets) * 100
-            percentage_errors[~targets_nonzero_mask] = 0
-            mape = percentage_errors.sum() / targets_nonzero_mask.sum()
-        else:
-            mape = torch.tensor(float('nan'))
-        
-        # Compute R^2
-        targets_mean = targets[valid_mask].mean()
-        ss_tot = ((targets - targets_mean) ** 2)
-        ss_tot[targets_nan_mask] = 0
-        ss_tot = ss_tot.sum()
-        ss_res = squared_diff.sum()
-        
-        if ss_tot > 0:
-            r2 = 1 - (ss_res / ss_tot)
-        else:
-            r2 = torch.tensor(float('nan'))
-
-        loss = loss_fn(input=preds, target=targets, reduction='none')
-        loss[targets_nan_mask] = 0
-        loss_mean = loss.sum() / num_valid
     else:
         # Computing metrics on GPU will be done in multiple steps.
+        metrics = _compute_metrics_batched(
+            preds=preds,
+            targets=targets,
+            targets_nan_mask=targets_nan_mask,
+            dataset=dataset,
+            loss_fn=loss_fn,
+            apply_transform_to_preds=apply_transform_to_preds,
+            eval_timestamps=eval_timestamps
+        )
+        
         preds_transformed = dataset.transform_preds_for_metrics(preds.to(dataset.device)) if apply_transform_to_preds else preds.clone()
-        preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
-        preds_targets_loader = DataLoader(preds_targets_dataset, batch_size=dataset.eval_max_num_timestamps_per_step,
-                                          shuffle=False, drop_last=False, num_workers=1, pin_memory=True)
 
-        loss_sum = 0
-        abs_diff_sum = 0
-        squared_diff_sum = 0
-        percentage_error_sum = 0
-        ss_res_sum = 0
-        ss_tot_sum = 0
-        num_valid_total = 0
-        num_nonzero_total = 0
-        targets_sum = 0
+    return metrics, preds_transformed, targets_transformed
 
-        # First pass: compute means
-        for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
-            cur_targets = cur_targets.to(dataset.device)
-            cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
-            cur_valid_mask = ~cur_targets_nan_mask
-            
-            targets_sum += cur_targets[cur_valid_mask].sum()
-            num_valid_total += cur_valid_mask.sum()
+
+def _compute_single_timestamp_metrics(preds_t, targets_t, targets_nan_mask_t, loss_fn):
+    """
+    Compute metrics for a single timestamp slice.
+    
+    Args:
+        preds_t: Predictions at timestamp t, shape [num_samples, ...]
+        targets_t: Targets at timestamp t, shape [num_samples, ...]
+        targets_nan_mask_t: NaN mask at timestamp t, shape [num_samples, ...]
+        loss_fn: Loss function
         
-        targets_mean = targets_sum / num_valid_total
-        
-        # Second pass: compute all metrics
-        for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
-            cur_preds = cur_preds.to(dataset.device)
-            if apply_transform_to_preds:
-                cur_preds = dataset.transform_preds_for_metrics(cur_preds)
-
-            cur_targets = cur_targets.to(dataset.device)
-            cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
-            cur_valid_mask = ~cur_targets_nan_mask
-
-            # Absolute and squared differences
-            cur_abs_diff = torch.abs(cur_preds - cur_targets)
-            cur_squared_diff = (cur_preds - cur_targets) ** 2
-            cur_abs_diff[cur_targets_nan_mask] = 0
-            cur_squared_diff[cur_targets_nan_mask] = 0
-            
-            abs_diff_sum += cur_abs_diff.sum()
-            squared_diff_sum += cur_squared_diff.sum()
-            
-            # MAPE computation
-            cur_targets_nonzero_mask = (cur_targets != 0) & cur_valid_mask
-            if cur_targets_nonzero_mask.sum() > 0:
-                cur_percentage_errors = torch.abs((cur_targets - cur_preds) / cur_targets) * 100
-                cur_percentage_errors[~cur_targets_nonzero_mask] = 0
-                percentage_error_sum += cur_percentage_errors.sum()
-                num_nonzero_total += cur_targets_nonzero_mask.sum()
-            
-            # R^2 computation
-            cur_ss_tot = ((cur_targets - targets_mean) ** 2)
-            cur_ss_tot[cur_targets_nan_mask] = 0
-            ss_tot_sum += cur_ss_tot.sum()
-            ss_res_sum += cur_squared_diff.sum()
-
-            # Loss computation
-            cur_loss = loss_fn(input=cur_preds, target=cur_targets, reduction='none')
-            cur_loss[cur_targets_nan_mask] = 0
-            loss_sum += cur_loss.sum()
-
-        # Compute final metrics
-        mae = abs_diff_sum / num_valid_total
-        mse = squared_diff_sum / num_valid_total
-        rmse = torch.sqrt(mse)
-        
-        if num_nonzero_total > 0:
-            mape = percentage_error_sum / num_nonzero_total
-        else:
-            mape = torch.tensor(float('nan'))
-        
-        if ss_tot_sum > 0:
-            r2 = 1 - (ss_res_sum / ss_tot_sum)
-        else:
-            r2 = torch.tensor(float('nan'))
-        
-        loss_mean = loss_sum / num_valid_total
-
-    metrics = {
+    Returns:
+        Dictionary with metrics for this timestamp
+    """
+    valid_mask = ~targets_nan_mask_t
+    
+    # Compute absolute and squared differences
+    abs_diff = torch.abs(preds_t - targets_t)
+    squared_diff = (preds_t - targets_t) ** 2
+    
+    # Zero out NaN positions
+    abs_diff[targets_nan_mask_t] = 0
+    squared_diff[targets_nan_mask_t] = 0
+    
+    # Count valid elements
+    num_valid = valid_mask.sum()
+    
+    if num_valid == 0:
+        # No valid data at this timestamp
+        return {
+            "MSE": float('nan'),
+            "RMSE": float('nan'),
+            "MAE": float('nan'),
+            "MAPE": float('nan'),
+            "R2": float('nan'),
+            "loss": float('nan')
+        }
+    
+    # Compute MAE and MSE
+    mae = abs_diff.sum() / num_valid
+    mse = squared_diff.sum() / num_valid
+    rmse = torch.sqrt(mse)
+    
+    # Compute MAPE (avoiding division by zero)
+    targets_nonzero_mask = (targets_t != 0) & valid_mask
+    if targets_nonzero_mask.sum() > 0:
+        percentage_errors = torch.abs((targets_t - preds_t) / targets_t) * 100
+        percentage_errors[~targets_nonzero_mask] = 0
+        mape = percentage_errors.sum() / targets_nonzero_mask.sum()
+    else:
+        mape = torch.tensor(float('nan'))
+    
+    # Compute R^2
+    targets_mean = targets_t[valid_mask].mean()
+    ss_tot = ((targets_t - targets_mean) ** 2)
+    ss_tot[targets_nan_mask_t] = 0
+    ss_tot = ss_tot.sum()
+    ss_res = squared_diff.sum()
+    
+    if ss_tot > 0:
+        r2 = 1 - (ss_res / ss_tot)
+    else:
+        r2 = torch.tensor(float('nan'))
+    
+    # Compute loss
+    loss = loss_fn(input=preds_t, target=targets_t, reduction='none')
+    loss[targets_nan_mask_t] = 0
+    loss_mean = loss.sum() / num_valid
+    
+    return {
         "MSE": mse.item(),
         "RMSE": rmse.item(),
         "MAE": mae.item(),
@@ -482,8 +463,314 @@ def compute_metrics(preds, targets, targets_nan_mask, dataset, loss_fn, metric, 
         "loss": loss_mean.item()
     }
 
-    return metrics, preds_transformed, targets_transformed
 
+def _compute_metrics_single_batch(preds, targets, targets_nan_mask, dataset, loss_fn, 
+                                  apply_transform_to_preds, eval_timestamps):
+    """Compute metrics when all data fits in one batch."""
+    
+    preds = preds.to(dataset.device)
+    if apply_transform_to_preds:
+        preds = dataset.transform_preds_for_metrics(preds)
+
+    targets = targets.to(dataset.device)
+    targets_nan_mask = targets_nan_mask.to(dataset.device)
+
+    # Compute overall metrics (all timestamps together)
+    valid_mask = ~targets_nan_mask
+    
+    abs_diff = torch.abs(preds - targets)
+    squared_diff = (preds - targets) ** 2
+    
+    abs_diff[targets_nan_mask] = 0
+    squared_diff[targets_nan_mask] = 0
+    
+    num_valid = valid_mask.sum()
+    
+    mae = abs_diff.sum() / num_valid
+    mse = squared_diff.sum() / num_valid
+    rmse = torch.sqrt(mse)
+    
+    targets_nonzero_mask = (targets != 0) & valid_mask
+    if targets_nonzero_mask.sum() > 0:
+        percentage_errors = torch.abs((targets - preds) / targets) * 100
+        percentage_errors[~targets_nonzero_mask] = 0
+        mape = percentage_errors.sum() / targets_nonzero_mask.sum()
+    else:
+        mape = torch.tensor(float('nan'))
+    
+    targets_mean = targets[valid_mask].mean()
+    ss_tot = ((targets - targets_mean) ** 2)
+    ss_tot[targets_nan_mask] = 0
+    ss_tot = ss_tot.sum()
+    ss_res = squared_diff.sum()
+    
+    if ss_tot > 0:
+        r2 = 1 - (ss_res / ss_tot)
+    else:
+        r2 = torch.tensor(float('nan'))
+
+    loss = loss_fn(input=preds, target=targets, reduction='none')
+    loss[targets_nan_mask] = 0
+    loss_mean = loss.sum() / num_valid
+    
+    # Store overall metrics
+    metrics = {
+        "MSE": mse.item(),
+        "RMSE": rmse.item(),
+        "MAE": mae.item(),
+        "MAPE": mape.item(),
+        "R2": r2.item(),
+        "loss": loss_mean.item()
+    }
+    
+    # Compute metrics for specific timestamps
+    num_timestamps = preds.shape[1] if len(preds.shape) > 1 else 1
+    
+    for t_idx in eval_timestamps:
+        if t_idx < num_timestamps:
+            # Extract predictions, targets, and mask for this timestamp
+            if len(preds.shape) > 1:
+                preds_t = preds[:, t_idx]
+                targets_t = targets[:, t_idx]
+                targets_nan_mask_t = targets_nan_mask[:, t_idx]
+            else:
+                # If only one timestamp, use all data
+                preds_t = preds
+                targets_t = targets
+                targets_nan_mask_t = targets_nan_mask
+            
+            # Compute metrics for this timestamp
+            t_metrics = _compute_single_timestamp_metrics(
+                preds_t, targets_t, targets_nan_mask_t, loss_fn
+            )
+            
+            # Add to metrics dict with timestamp prefix
+            for metric_name, value in t_metrics.items():
+                metrics[f"t{t_idx}_{metric_name}"] = value
+    
+    return metrics
+
+
+def _compute_metrics_batched(preds, targets, targets_nan_mask, dataset, loss_fn, 
+                             apply_transform_to_preds, eval_timestamps):
+    """Compute metrics in multiple batches for large datasets."""
+    
+    preds_targets_dataset = TensorDataset(preds, targets, targets_nan_mask)
+    preds_targets_loader = DataLoader(
+        preds_targets_dataset, 
+        batch_size=dataset.eval_max_num_timestamps_per_step,
+        shuffle=False, 
+        drop_last=False, 
+        num_workers=1, 
+        pin_memory=True
+    )
+
+    # Initialize accumulators for overall metrics
+    loss_sum = 0
+    abs_diff_sum = 0
+    squared_diff_sum = 0
+    percentage_error_sum = 0
+    ss_res_sum = 0
+    ss_tot_sum = 0
+    num_valid_total = 0
+    num_nonzero_total = 0
+    targets_sum = 0
+    
+    # Initialize accumulators for per-timestamp metrics
+    timestamp_accumulators = {}
+    for t_idx in eval_timestamps:
+        timestamp_accumulators[t_idx] = {
+            'abs_diff_sum': 0,
+            'squared_diff_sum': 0,
+            'percentage_error_sum': 0,
+            'ss_res_sum': 0,
+            'ss_tot_sum': 0,
+            'num_valid': 0,
+            'num_nonzero': 0,
+            'targets_sum': 0,
+            'loss_sum': 0
+        }
+    
+    # First pass: compute means
+    for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
+        cur_targets = cur_targets.to(dataset.device)
+        cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
+        cur_valid_mask = ~cur_targets_nan_mask
+        
+        # Overall mean
+        targets_sum += cur_targets[cur_valid_mask].sum()
+        num_valid_total += cur_valid_mask.sum()
+        
+        # Per-timestamp means
+        num_timestamps = cur_targets.shape[1] if len(cur_targets.shape) > 1 else 1
+        for t_idx in eval_timestamps:
+            if t_idx < num_timestamps:
+                if len(cur_targets.shape) > 1:
+                    cur_targets_t = cur_targets[:, t_idx]
+                    cur_valid_mask_t = cur_valid_mask[:, t_idx]
+                else:
+                    cur_targets_t = cur_targets
+                    cur_valid_mask_t = cur_valid_mask
+                
+                timestamp_accumulators[t_idx]['targets_sum'] += cur_targets_t[cur_valid_mask_t].sum()
+                timestamp_accumulators[t_idx]['num_valid'] += cur_valid_mask_t.sum()
+    
+    targets_mean = targets_sum / num_valid_total
+    
+    # Compute per-timestamp means
+    timestamp_means = {}
+    for t_idx in eval_timestamps:
+        if timestamp_accumulators[t_idx]['num_valid'] > 0:
+            timestamp_means[t_idx] = timestamp_accumulators[t_idx]['targets_sum'] / timestamp_accumulators[t_idx]['num_valid']
+        else:
+            timestamp_means[t_idx] = torch.tensor(0.0).to(dataset.device)
+    
+    # Second pass: compute all metrics
+    for cur_preds, cur_targets, cur_targets_nan_mask in preds_targets_loader:
+        cur_preds = cur_preds.to(dataset.device)
+        if apply_transform_to_preds:
+            cur_preds = dataset.transform_preds_for_metrics(cur_preds)
+
+        cur_targets = cur_targets.to(dataset.device)
+        cur_targets_nan_mask = cur_targets_nan_mask.to(dataset.device)
+        cur_valid_mask = ~cur_targets_nan_mask
+
+        # ===== Overall metrics =====
+        cur_abs_diff = torch.abs(cur_preds - cur_targets)
+        cur_squared_diff = (cur_preds - cur_targets) ** 2
+        cur_abs_diff[cur_targets_nan_mask] = 0
+        cur_squared_diff[cur_targets_nan_mask] = 0
+        
+        abs_diff_sum += cur_abs_diff.sum()
+        squared_diff_sum += cur_squared_diff.sum()
+        
+        # MAPE computation
+        cur_targets_nonzero_mask = (cur_targets != 0) & cur_valid_mask
+        if cur_targets_nonzero_mask.sum() > 0:
+            cur_percentage_errors = torch.abs((cur_targets - cur_preds) / cur_targets) * 100
+            cur_percentage_errors[~cur_targets_nonzero_mask] = 0
+            percentage_error_sum += cur_percentage_errors.sum()
+            num_nonzero_total += cur_targets_nonzero_mask.sum()
+        
+        # R^2 computation
+        cur_ss_tot = ((cur_targets - targets_mean) ** 2)
+        cur_ss_tot[cur_targets_nan_mask] = 0
+        ss_tot_sum += cur_ss_tot.sum()
+        ss_res_sum += cur_squared_diff.sum()
+
+        # Loss computation
+        cur_loss = loss_fn(input=cur_preds, target=cur_targets, reduction='none')
+        cur_loss[cur_targets_nan_mask] = 0
+        loss_sum += cur_loss.sum()
+        
+        # ===== Per-timestamp metrics =====
+        num_timestamps = cur_preds.shape[1] if len(cur_preds.shape) > 1 else 1
+        
+        for t_idx in eval_timestamps:
+            if t_idx < num_timestamps:
+                # Extract data for this timestamp
+                if len(cur_preds.shape) > 1:
+                    cur_preds_t = cur_preds[:, t_idx]
+                    cur_targets_t = cur_targets[:, t_idx]
+                    cur_targets_nan_mask_t = cur_targets_nan_mask[:, t_idx]
+                else:
+                    cur_preds_t = cur_preds
+                    cur_targets_t = cur_targets
+                    cur_targets_nan_mask_t = cur_targets_nan_mask
+                
+                cur_valid_mask_t = ~cur_targets_nan_mask_t
+                
+                # Compute differences
+                cur_abs_diff_t = torch.abs(cur_preds_t - cur_targets_t)
+                cur_squared_diff_t = (cur_preds_t - cur_targets_t) ** 2
+                cur_abs_diff_t[cur_targets_nan_mask_t] = 0
+                cur_squared_diff_t[cur_targets_nan_mask_t] = 0
+                
+                timestamp_accumulators[t_idx]['abs_diff_sum'] += cur_abs_diff_t.sum()
+                timestamp_accumulators[t_idx]['squared_diff_sum'] += cur_squared_diff_t.sum()
+                
+                # MAPE
+                cur_targets_nonzero_mask_t = (cur_targets_t != 0) & cur_valid_mask_t
+                if cur_targets_nonzero_mask_t.sum() > 0:
+                    cur_percentage_errors_t = torch.abs((cur_targets_t - cur_preds_t) / cur_targets_t) * 100
+                    cur_percentage_errors_t[~cur_targets_nonzero_mask_t] = 0
+                    timestamp_accumulators[t_idx]['percentage_error_sum'] += cur_percentage_errors_t.sum()
+                    timestamp_accumulators[t_idx]['num_nonzero'] += cur_targets_nonzero_mask_t.sum()
+                
+                # R^2
+                cur_ss_tot_t = ((cur_targets_t - timestamp_means[t_idx]) ** 2)
+                cur_ss_tot_t[cur_targets_nan_mask_t] = 0
+                timestamp_accumulators[t_idx]['ss_tot_sum'] += cur_ss_tot_t.sum()
+                timestamp_accumulators[t_idx]['ss_res_sum'] += cur_squared_diff_t.sum()
+                
+                # Loss
+                cur_loss_t = loss_fn(input=cur_preds_t, target=cur_targets_t, reduction='none')
+                cur_loss_t[cur_targets_nan_mask_t] = 0
+                timestamp_accumulators[t_idx]['loss_sum'] += cur_loss_t.sum()
+
+    # ===== Compute final overall metrics =====
+    mae = abs_diff_sum / num_valid_total
+    mse = squared_diff_sum / num_valid_total
+    rmse = torch.sqrt(mse)
+    
+    if num_nonzero_total > 0:
+        mape = percentage_error_sum / num_nonzero_total
+    else:
+        mape = torch.tensor(float('nan'))
+    
+    if ss_tot_sum > 0:
+        r2 = 1 - (ss_res_sum / ss_tot_sum)
+    else:
+        r2 = torch.tensor(float('nan'))
+    
+    loss_mean = loss_sum / num_valid_total
+    
+    metrics = {
+        "MSE": mse.item(),
+        "RMSE": rmse.item(),
+        "MAE": mae.item(),
+        "MAPE": mape.item(),
+        "R2": r2.item(),
+        "loss": loss_mean.item()
+    }
+    
+    # ===== Compute final per-timestamp metrics =====
+    for t_idx in eval_timestamps:
+        acc = timestamp_accumulators[t_idx]
+        
+        if acc['num_valid'] == 0:
+            # No valid data at this timestamp
+            metrics[f"t{t_idx}_MSE"] = float('nan')
+            metrics[f"t{t_idx}_RMSE"] = float('nan')
+            metrics[f"t{t_idx}_MAE"] = float('nan')
+            metrics[f"t{t_idx}_MAPE"] = float('nan')
+            metrics[f"t{t_idx}_R2"] = float('nan')
+            metrics[f"t{t_idx}_loss"] = float('nan')
+        else:
+            t_mae = acc['abs_diff_sum'] / acc['num_valid']
+            t_mse = acc['squared_diff_sum'] / acc['num_valid']
+            t_rmse = torch.sqrt(t_mse)
+            
+            if acc['num_nonzero'] > 0:
+                t_mape = acc['percentage_error_sum'] / acc['num_nonzero']
+            else:
+                t_mape = torch.tensor(float('nan'))
+            
+            if acc['ss_tot_sum'] > 0:
+                t_r2 = 1 - (acc['ss_res_sum'] / acc['ss_tot_sum'])
+            else:
+                t_r2 = torch.tensor(float('nan'))
+            
+            t_loss_mean = acc['loss_sum'] / acc['num_valid']
+            
+            metrics[f"t{t_idx}_MSE"] = t_mse.item()
+            metrics[f"t{t_idx}_RMSE"] = t_rmse.item()
+            metrics[f"t{t_idx}_MAE"] = t_mae.item()
+            metrics[f"t{t_idx}_MAPE"] = t_mape.item()
+            metrics[f"t{t_idx}_R2"] = t_r2.item()
+            metrics[f"t{t_idx}_loss"] = t_loss_mean.item()
+    
+    return metrics
 
 @torch.no_grad()
 def evaluate_on_val_or_test(model, dataset, split, timestamps_loader, loss_fn, metric, amp=True):
@@ -813,7 +1100,6 @@ def main():
               do_not_train=args.DO_NOT_TRAIN)
 
         state_handler.load_checkpoint()
-
 
 
         PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
