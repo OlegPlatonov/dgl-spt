@@ -219,63 +219,106 @@ class Dataset:
                 [numerical_temporal_features_mask, numerical_time_based_features_mask], axis=0
             )
 
-        # PREPARE GRAPH
+        # PREPARE GRAPH (supports multi edge types)
 
         if sum([reverse_edges, to_undirected, use_forward_and_reverse_edges_as_different_edge_types]) > 1:
-            raise ValueError('At most one of the graph edge processing arguments reverse_edges, to_undirected, '
+            raise ValueError('At most one of reverse_edges, to_undirected, '
                              'use_forward_and_reverse_edges_as_different_edge_types can be True.')
 
-        edges = torch.from_numpy(data['edges'])
+        num_nodes = int(num_nodes)
+        has_typed = all(k in data for k in ("edges_road", "edges_membership", "edges_cross"))
 
-        if use_forward_and_reverse_edges_as_different_edge_types:
+        def _process_numpy_edges(E_np: np.ndarray, to_undir: bool, rev: bool):
+            if E_np.size == 0:
+                return torch.empty(0, dtype=torch.int64), torch.empty(0, dtype=torch.int64)
+            src = E_np[:, 0]
+            dst = E_np[:, 1]
+            if to_undir:
+                src2 = np.concatenate([src, dst])
+                dst2 = np.concatenate([dst, src])
+            elif rev:
+                src2, dst2 = dst, src
+            else:
+                src2, dst2 = src, dst
+            return torch.from_numpy(src2.astype(np.int64)), torch.from_numpy(dst2.astype(np.int64))
+
+        if has_typed:
             if use_edge_index:
-                raise ValueError(
-                    'The use of both forward and reverse edges in the graph as different edge types is not supported '
-                    'for PyG graphs. Arguments use_forward_and_reverse_edges_as_different_edge_types and pyg cannot be '
-                    'both True.'
-                )
+                raise ValueError('Heterograph with multiple edge types is not supported with use_edge_index=True.')
+            if use_forward_and_reverse_edges_as_different_edge_types:
+                raise ValueError('use_forward_and_reverse_edges_as_different_edge_types '
+                                 'conflicts with typed edges in NPZ.')
 
-            graph = dgl.heterograph(
-                {
-                    ('node', 'forward_edge', 'node'): (edges[:, 0], edges[:, 1]),
-                    ('node', 'reverse_edge', 'node'): (edges[:, 1], edges[:, 0])
-                },
-                num_nodes_dict={'node': num_nodes},
-                idtype=torch.int32
-            )
+            E_rr = data["edges_road"].astype(np.int64, copy=False)       # обычные
+            E_mm = data["edges_membership"].astype(np.int64, copy=False) # virt–бамбук
+            E_cc = data["edges_cross"].astype(np.int64, copy=False)      # virt–перекрёсток
+
+            rr_src, rr_dst = _process_numpy_edges(E_rr, to_undirected, reverse_edges)
+            mm_src, mm_dst = _process_numpy_edges(E_mm, to_undirected, reverse_edges)
+            cc_src, cc_dst = _process_numpy_edges(E_cc, to_undirected, reverse_edges)
+
+            edges_dict = {}
+            if rr_src.numel() > 0:
+                edges_dict[('node', 'road', 'node')] = (rr_src, rr_dst)
+            if mm_src.numel() > 0:
+                edges_dict[('node', 'membership', 'node')] = (mm_src, mm_dst)
+            if cc_src.numel() > 0:
+                edges_dict[('node', 'cross', 'node')] = (cc_src, cc_dst)
+
+            graph = dgl.heterograph(edges_dict, num_nodes_dict={'node': num_nodes}, idtype=torch.int32)
+            print("build heterograph with edge types:", graph.etypes)
+
 
         else:
+            # single edge type (old behavior)
+            edges = torch.from_numpy(data['edges']).long()
 
-            ### EXPERIMENT
-            # E = data['edges'].astype(np.int64, copy=False)
-            # idx_of = {tuple(e): i for i, e in enumerate(E)}
-            # mask_keep = np.ones(len(E), dtype=bool)
+            if use_forward_and_reverse_edges_as_different_edge_types:
+                if use_edge_index:
+                    raise ValueError(
+                        'Using forward+reverse as different edge types is not supported for PyG graphs '
+                        '(use_edge_index=True).'
+                    )
+                graph = dgl.heterograph(
+                    {
+                        ('node', 'forward_edge', 'node'): (edges[:, 0], edges[:, 1]),
+                        ('node', 'reverse_edge', 'node'): (edges[:, 1], edges[:, 0]),
+                    },
+                    num_nodes_dict={'node': num_nodes},
+                    idtype=torch.int32
+                )
+            else:
 
-            # for i, (u, v) in enumerate(E):
-            #     if not mask_keep[i]:
-            #         continue
-            #     if (v, u) in idx_of:
-            #         j = idx_of[(v, u)]
-            #         mask_keep[i] = False
-            #         mask_keep[j] = False 
+                ### EXPERIMENT
+                # E = data['edges'].astype(np.int64, copy=False)
+                # idx_of = {tuple(e): i for i, e in enumerate(E)}
+                # mask_keep = np.ones(len(E), dtype=bool)
 
-            # E = E[mask_keep]
-            # edges = torch.from_numpy(E)
+                # for i, (u, v) in enumerate(E):
+                #     if not mask_keep[i]:
+                #         continue
+                #     if (v, u) in idx_of:
+                #         j = idx_of[(v, u)]
+                #         mask_keep[i] = False
+                #         mask_keep[j] = False 
 
-            ### EXPERIMENT
+                # E = E[mask_keep]
+                # edges = torch.from_numpy(E)
 
-            ### ablation
-            # np.random.seed(42)
-            # E = data["edges"].copy()
-            # np.random.shuffle(E[:, 1])
-            # edges = torch.from_numpy(E)
-            ### ablation
+                ### EXPERIMENT
 
-            graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
-            if to_undirected:
-                graph = dgl.to_bidirected(graph)
-            elif reverse_edges:
-                graph = dgl.reverse(graph)
+                ### ablation
+                # np.random.seed(42)
+                # E = data["edges"].copy()
+                # np.random.shuffle(E[:, 1])
+                # edges = torch.from_numpy(E)
+                ### ablation
+
+                graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
+                if to_undirected:
+                    graph = dgl.to_bidirected(graph)
+                elif reverse_edges:
+                    graph = dgl.reverse(graph)
 
         if add_self_loops:
             for cur_edge_type in graph.etypes:
@@ -284,17 +327,20 @@ class Dataset:
         train_batched_graph = dgl.batch([graph for _ in range(train_batch_size)])
         if eval_batch_size is not None and eval_batch_size != train_batch_size:
             eval_batched_graph = dgl.batch([graph for _ in range(eval_batch_size)])
+        else:
+            eval_batched_graph = train_batched_graph
 
         if use_edge_index:
-            # Convert DGL graphs to edge index (which is simply a pair of torch tensors storing edges).
+            if has_typed or (use_forward_and_reverse_edges_as_different_edge_types):
+                raise ValueError('use_edge_index=True only supported for single edge-type (homogeneous) graphs.')
             graph = torch.stack(graph.edges(), axis=0)
-            train_batched_graph = torch.stack(train_batched_graph.edges(), axis=0).long()  # torch_scatter needs int64 instead of int32
-            if eval_batch_size is not None and eval_batch_size != train_batch_size:
-                eval_batched_graph = torch.stack(eval_batched_graph.edges(), axis=0).long()  # torch_scatter needs int64 instead of int32
+            train_batched_graph = torch.stack(train_batched_graph.edges(), axis=0).long()
+            if eval_batched_graph is not train_batched_graph:
+                eval_batched_graph = torch.stack(eval_batched_graph.edges(), axis=0).long()
 
-        # We do not need the original data anymore.
         del data
 
+        
         # PREPARE INDEX SHIFTS FROM THE CURRENT TIMESTAMP TO PAST TARGETS THAT WILL BE USED AS FEATURES
 
         # Check validity of seasonal lookback arguments.
