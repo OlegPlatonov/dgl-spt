@@ -226,7 +226,10 @@ class Dataset:
                              'use_forward_and_reverse_edges_as_different_edge_types can be True.')
 
         num_nodes = int(num_nodes)
-        has_typed = all(k in data for k in ("edges_road", "edges_membership", "edges_cross"))
+
+        # Проверяем наличие typed-ключей (старые файлы с 3 типами и новые с 4 типами)
+        typed_keys = ["edges_road", "edges_membership", "edges_cross", "edges_geom"]
+        has_typed = any(k in data for k in typed_keys)
 
         def _process_numpy_edges(E_np: np.ndarray, to_undir: bool, rev: bool):
             if E_np.size == 0:
@@ -247,27 +250,37 @@ class Dataset:
                 raise ValueError('Heterograph with multiple edge types is not supported with use_edge_index=True.')
             if use_forward_and_reverse_edges_as_different_edge_types:
                 raise ValueError('use_forward_and_reverse_edges_as_different_edge_types '
-                                 'conflicts with typed edges in NPZ.')
+                                'conflicts with typed edges in NPZ.')
 
-            E_rr = data["edges_road"].astype(np.int64, copy=False)       # обычные
-            E_mm = data["edges_membership"].astype(np.int64, copy=False) # virt–бамбук
-            E_cc = data["edges_cross"].astype(np.int64, copy=False)      # virt–перекрёсток
+            # читаем, если ключ есть, иначе делаем пустые массивы [0,2]
+            def get_edges(key: str) -> np.ndarray:
+                if key in data:
+                    return data[key].astype(np.int64, copy=False)
+                else:
+                    return np.zeros((0, 2), dtype=np.int64)
+
+            E_rr = get_edges("edges_road")        # обычные
+            E_mm = get_edges("edges_membership")  # virt–бамбук
+            E_cc = get_edges("edges_cross")       # virt–перекрёсток
+            E_gc = get_edges("edges_geom")        # virt–геом (может быть пустым для старых файлов)
 
             rr_src, rr_dst = _process_numpy_edges(E_rr, to_undirected, reverse_edges)
             mm_src, mm_dst = _process_numpy_edges(E_mm, to_undirected, reverse_edges)
             cc_src, cc_dst = _process_numpy_edges(E_cc, to_undirected, reverse_edges)
+            gc_src, gc_dst = _process_numpy_edges(E_gc, to_undirected, reverse_edges)
 
             edges_dict = {}
             if rr_src.numel() > 0:
                 edges_dict[('node', 'road', 'node')] = (rr_src, rr_dst)
             if mm_src.numel() > 0:
-                edges_dict[('node', 'membership', 'node')] = (mm_src, mm_dst)
+                edges_dict[('node', 'chain_membership', 'node')] = (mm_src, mm_dst)
             if cc_src.numel() > 0:
-                edges_dict[('node', 'cross', 'node')] = (cc_src, cc_dst)
+                edges_dict[('node', 'chain_crossroad', 'node')] = (cc_src, cc_dst)
+            if gc_src.numel() > 0:
+                edges_dict[('node', 'geom_cluster', 'node')] = (gc_src, gc_dst)
 
             graph = dgl.heterograph(edges_dict, num_nodes_dict={'node': num_nodes}, idtype=torch.int32)
             print("build heterograph with edge types:", graph.etypes)
-
 
         else:
             # single edge type (old behavior)
@@ -288,32 +301,6 @@ class Dataset:
                     idtype=torch.int32
                 )
             else:
-
-                ### EXPERIMENT
-                # E = data['edges'].astype(np.int64, copy=False)
-                # idx_of = {tuple(e): i for i, e in enumerate(E)}
-                # mask_keep = np.ones(len(E), dtype=bool)
-
-                # for i, (u, v) in enumerate(E):
-                #     if not mask_keep[i]:
-                #         continue
-                #     if (v, u) in idx_of:
-                #         j = idx_of[(v, u)]
-                #         mask_keep[i] = False
-                #         mask_keep[j] = False 
-
-                # E = E[mask_keep]
-                # edges = torch.from_numpy(E)
-
-                ### EXPERIMENT
-
-                ### ablation
-                # np.random.seed(42)
-                # E = data["edges"].copy()
-                # np.random.shuffle(E[:, 1])
-                # edges = torch.from_numpy(E)
-                ### ablation
-
                 graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
                 if to_undirected:
                     graph = dgl.to_bidirected(graph)
