@@ -221,13 +221,6 @@ class Dataset:
 
         # PREPARE GRAPH (supports multi edge types)
 
-        if sum([reverse_edges, to_undirected, use_forward_and_reverse_edges_as_different_edge_types]) > 1:
-            raise ValueError('At most one of reverse_edges, to_undirected, '
-                            'use_forward_and_reverse_edges_as_different_edge_types can be True.')
-
-        num_nodes = int(num_nodes)
-
-        # считаем, что граф "typed", если есть хотя бы один из специальных массивов рёбер
         typed_edge_keys = ("edges_road", "edges_membership", "edges_cross", "edges_chainchain")
         has_typed = any(k in data for k in typed_edge_keys)
 
@@ -252,11 +245,26 @@ class Dataset:
                 raise ValueError('use_forward_and_reverse_edges_as_different_edge_types '
                                 'conflicts with typed edges in NPZ.')
 
-            # аккуратно берём, если массивов нет — считаем их пустыми
-            E_rr  = data.get("edges_road",       np.empty((0, 2), dtype=np.int64))       # обычные
-            E_mm  = data.get("edges_membership", np.empty((0, 2), dtype=np.int64))       # virt–цепочка
-            E_cc  = data.get("edges_cross",      np.empty((0, 2), dtype=np.int64))       # virt–перекрёсток
-            E_vv  = data.get("edges_chainchain", np.empty((0, 2), dtype=np.int64))       # virt–virt через перекрёстки
+            # аккуратно читаем массивы рёбер, если ключа нет — считаем, что такой тип рёбер отсутствует
+            if "edges_road" in data:
+                E_rr = data["edges_road"].astype(np.int64, copy=False)
+            else:
+                E_rr = np.empty((0, 2), dtype=np.int64)
+
+            if "edges_membership" in data:
+                E_mm = data["edges_membership"].astype(np.int64, copy=False)
+            else:
+                E_mm = np.empty((0, 2), dtype=np.int64)
+
+            if "edges_cross" in data:
+                E_cc = data["edges_cross"].astype(np.int64, copy=False)
+            else:
+                E_cc = np.empty((0, 2), dtype=np.int64)
+
+            if "edges_chainchain" in data:
+                E_vv = data["edges_chainchain"].astype(np.int64, copy=False)
+            else:
+                E_vv = np.empty((0, 2), dtype=np.int64)
 
             rr_src, rr_dst = _process_numpy_edges(E_rr, to_undirected, reverse_edges)
             mm_src, mm_dst = _process_numpy_edges(E_mm, to_undirected, reverse_edges)
