@@ -535,7 +535,8 @@ class Dataset:
         self.features_dim = features_dim
         self.seq_len = direct_lookback_num_steps if provide_sequnce_inputs else None
 
-        self.eval_max_num_timestamps_per_step = min(max(eval_max_num_predictions_per_step // self.targets_dim // num_nodes, 10_000), eval_max_num_predictions_per_step)
+        self.eval_max_num_timestamps_per_step = eval_max_num_predictions_per_step // self.targets_dim // num_nodes
+        print("eval_max_num_timestamps_per_step =", self.eval_max_num_timestamps_per_step)
         if not disable_features_checkpointing:
             copy_out_to_snapshot(state_handler.checkpoint_dir, dump=True) # dump all prepared features, transforms and targets
 
