@@ -316,7 +316,7 @@ def optimizer_step(optimizer, gradscaler):
 
 
 def compute_metrics(preds, targets, targets_nan_mask, dataset, loss_fn, metric, apply_transform_to_preds=True,
-                   eval_timestamps=[3, 5, 11]):
+                   eval_timestamps=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]):
     """
     Computes MAPE, MAE, RMSE, MSE, R^2 both overall and at specific timestamps.
     
