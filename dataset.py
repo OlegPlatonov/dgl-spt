@@ -265,7 +265,6 @@ class Dataset:
             ### EXPERIMENT
 
             ### ablation
-            np.random.seed(42)
             E = data["edges"].copy()
             np.random.shuffle(E[:, 1])
             edges = torch.from_numpy(E)
