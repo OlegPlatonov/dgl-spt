@@ -724,5 +724,6 @@ def main():
 
 
 if __name__ == '__main__':
-    seed_everything()
+    SEED = int(os.environ.get("SEED", 0))
+    seed_everything(SEED)   
     main()
