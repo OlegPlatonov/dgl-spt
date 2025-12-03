@@ -606,8 +606,8 @@ def _compute_metrics_batched(preds, targets, targets_nan_mask, dataset, loss_fn,
         for t_idx in eval_timestamps:
             if t_idx < num_timestamps:
                 if len(cur_targets.shape) > 1:
-                    cur_targets_t = cur_targets[:, t_idx]
-                    cur_valid_mask_t = cur_valid_mask[:, t_idx]
+                    cur_targets_t = cur_targets[..., t_idx]
+                    cur_valid_mask_t = cur_valid_mask[..., t_idx]
                 else:
                     cur_targets_t = cur_targets
                     cur_valid_mask_t = cur_valid_mask
@@ -670,9 +670,9 @@ def _compute_metrics_batched(preds, targets, targets_nan_mask, dataset, loss_fn,
             if t_idx < num_timestamps:
                 # Extract data for this timestamp
                 if len(cur_preds.shape) > 1:
-                    cur_preds_t = cur_preds[:, t_idx]
-                    cur_targets_t = cur_targets[:, t_idx]
-                    cur_targets_nan_mask_t = cur_targets_nan_mask[:, t_idx]
+                    cur_preds_t = cur_preds[..., t_idx]
+                    cur_targets_t = cur_targets[..., t_idx]
+                    cur_targets_nan_mask_t = cur_targets_nan_mask[..., t_idx]
                 else:
                     cur_preds_t = cur_preds
                     cur_targets_t = cur_targets
@@ -1100,7 +1100,6 @@ def main():
               do_not_train=args.DO_NOT_TRAIN)
 
         state_handler.load_checkpoint()
-
 
         PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
         if args.save_preds is not None:
