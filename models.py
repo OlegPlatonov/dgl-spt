@@ -218,7 +218,7 @@ class ResNetWithStructNFA(SingleInputModel):
 
         self.num_nodes = num_nodes
         self.struct_use_degree = struct_use_degree
-        self.nfa_use = False 
+        self.nfa_use = True 
         self.nfa_dirs = nfa_dirs
 
         # --- сохраним «референсный» батченый граф из инициализации, чтобы посчитать mean/std для степеней ---

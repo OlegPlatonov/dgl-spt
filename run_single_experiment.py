@@ -229,7 +229,7 @@ def get_args(add_name: bool = True):
     
     # RESNET parametrs
     parser.add_argument('--struct_use_degree', action='store_true', default=True)
-    parser.add_argument('--nfa_use', action='store_true', default=False)
+    parser.add_argument('--nfa_use', action='store_true', default=True)
     parser.add_argument('--nfa_dirs', type=str, choices=['in','out','both'], default='both')
 
 
