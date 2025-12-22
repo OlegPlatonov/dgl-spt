@@ -301,6 +301,11 @@ def get_args(add_name: bool = True):
 
     parser.add_argument('--DO_NOT_TRAIN', action='store_true',
                         help='Do not train, only eval')
+    
+    # Underdeep
+    parser.add_argument('--underdeep_project', type=str, default=None)
+    parser.add_argument('--underdeep_experiment', type=str, default=None)
+
 
     args = parser.parse_args()
 
@@ -901,12 +906,17 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
                 progress_bar.update()
                 progress_bar.set_postfix(
-                    {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                    {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
+                    {metric: f'{value:.4f}' for metric, value in metrics.items()} |
+                    {'cur step loss': f'{state_handler.loss.item():.6f}', 'epoch': epoch}
                 )
 
 
                 if steps_till_optimizer_step == 0:
+                    if ud_run is not None:
+                        ud_run.log(
+                            {"train/loss": float(state_handler.loss.item())},
+                            step=state_handler.optimizer_steps_done
+                        )
                     optimizer_step(optimizer=optimizer, gradscaler=gradscaler)
                     state_handler.loss = 0
                     state_handler.optimizer_steps_done += 1
@@ -945,6 +955,11 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
         metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
                         test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
                         amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
+        
+        if ud_run is not None:
+            ud_run.log({f"{k.replace(' ', '/')}" : float(v) for k, v in metrics.items()},
+                    step=state_handler.optimizer_steps_done)
+
         logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
 
     logger.finish_run()
@@ -965,6 +980,19 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
 def main():
     args, _ = get_args()
+
+    ud_client = None
+    ud_run = None
+
+    if args.underdeep_project is not None and args.underdeep_experiment is not None:
+        import underdeep as U
+        ud_client = U.Client(project=args.underdeep_project)
+
+    # создать эксперимент, если его ещё нет
+    exp = ud_client.experiments.add(code=args.underdeep_experiment)
+    ud_client.change_experiment(exp)
+
+
     seed_everything(SEED)
 
     torch.set_num_threads(args.num_threads)
@@ -1091,6 +1119,11 @@ def main():
         if args.compile:
             model = torch.compile(model, dynamic=True, mode='reduce-overhead')
 
+        ud_run = None
+        if ud_client is not None:
+            ud_run = ud_client.init_run(parameters={**vars(args), "seed": run})
+
+
         train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
@@ -1116,6 +1149,8 @@ def main():
         copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
 
     logger.print_metrics_summary()
+    if ud_run is not None:
+        ud_run.finish()
 
 
 if __name__ == '__main__':
