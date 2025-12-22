@@ -17,6 +17,8 @@ from time_based_features import create_time_based_features
 from utils import NirvanaNpzDataWrapper, StateHandler, get_tensor_or_wrap_memmap, read_memmap
 from nirvana_utils import copy_out_to_snapshot
 
+DO_TRANSFER_TRAIN = bool(os.environ.get("DO_TRANSFER_TRAIN", False))
+DO_TRANSFER_EVAL  = bool(os.environ.get("DO_TRANSFER_EVAL", False))
 
 class Dataset:
     transforms = {
@@ -151,26 +153,50 @@ class Dataset:
         binary_feature_names_set = set(data['bin_feature_names'])
         categorical_feature_names_set = set(data['cat_feature_names'])
 
-        _pool_arguments = [
-            [
-                'temporal', temporal_features if not skip_temporal_features else np.empty((0, 0, temporal_features.shape[2])),
-                temporal_feature_names, numerical_feature_names_set,
-                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                train_slice, skip_temporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
-            ],
-            [
-                'spatial', spatial_features if not skip_spatial_features else np.empty((0, 0, spatial_features.shape[2])),
-                spatial_feature_names, numerical_feature_names_set,
-                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                train_slice, skip_spatial_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
-            ],
-            [
-                'spatiotemporal', spatiotemporal_features if not skip_spatiotemporal_features else np.empty((0, 0, spatiotemporal_features.shape[2])),
-                spatiotemporal_feature_names, numerical_feature_names_set,
-                categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
-                train_slice, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+        
+        if DO_TRANSFER_EVAL or DO_TRANSFER_TRAIN:
+            good_features = [1,  2,  3,  5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+            _pool_arguments = [
+                [
+                    'temporal', temporal_features if not skip_temporal_features else np.empty((0, 0, temporal_features.shape[2])),
+                    temporal_feature_names, numerical_feature_names_set,
+                    categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                    train_slice, skip_temporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+                ],
+                [
+                    'spatial', spatial_features[:, :, good_features] if not skip_spatial_features else np.empty((0, 0, spatial_features.shape[2])),
+                    [spatial_feature_names[i] for i in good_features], numerical_feature_names_set,
+                    categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                    train_slice, skip_spatial_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+                ],
+                [
+                    'spatiotemporal', spatiotemporal_features if not skip_spatiotemporal_features else np.empty((0, 0, spatiotemporal_features.shape[2])),
+                    spatiotemporal_feature_names, numerical_feature_names_set,
+                    categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                    train_slice, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+                ]
             ]
-        ]
+        else:
+            _pool_arguments = [
+                [
+                    'temporal', temporal_features if not skip_temporal_features else np.empty((0, 0, temporal_features.shape[2])),
+                    temporal_feature_names, numerical_feature_names_set,
+                    categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                    train_slice, skip_temporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+                ],
+                [
+                    'spatial', spatial_features if not skip_spatial_features else np.empty((0, 0, spatial_features.shape[2])),
+                    spatial_feature_names, numerical_feature_names_set,
+                    categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                    train_slice, skip_spatial_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+                ],
+                [
+                    'spatiotemporal', spatiotemporal_features if not skip_spatiotemporal_features else np.empty((0, 0, spatiotemporal_features.shape[2])),
+                    spatiotemporal_feature_names, numerical_feature_names_set,
+                    categorical_feature_names_set, numerical_features_transform, numerical_features_nan_imputation_strategy,
+                    train_slice, skip_spatiotemporal_features, state_handler.checkpoint_dir, nirvana, disable_features_checkpointing
+                ]
+            ]
 
         with Pool(processes=3) as preprocessing_pool:
             features_preprocessing_results = preprocessing_pool.starmap(self._transform_feature_group, _pool_arguments)
@@ -202,6 +228,8 @@ class Dataset:
         temporal_feature_names, spatial_feature_names, spatiotemporal_feature_names = feature_names_groups
         numerical_temporal_features_mask, numerical_spatial_features_mask, numerical_spatiotemporal_features_mask = \
             numerical_features_masks_by_group
+
+        print(f"AFTER PROCESSING: {temporal_features.shape=} {spatial_features.shape=} {spatiotemporal_features.shape=}")
 
         # Add time-based features.
         if time_based_features_types and time_based_features_periods:
@@ -424,6 +452,7 @@ class Dataset:
         self.add_nan_indicators_to_targets_for_features = add_nan_indicators_to_targets_for_features
         self.targets_for_loss_transform = targets_for_loss_transform.torch().to(device)
         self.targets_for_features_transform = targets_for_features_transform.torch().to(device)
+        # NOTE mb I just need to dump OHE encoder??
 
         self.temporal_features = get_tensor_or_wrap_memmap(temporal_features)
         self.temporal_feature_names = temporal_feature_names
@@ -754,11 +783,19 @@ class Dataset:
             numerical_features = features[:, :, numerical_features_mask]
 
             # Transform numerical features.
-            numerical_features_transform = self.transforms[numerical_features_transform]()
-            numerical_features_transform.fit(
-                numerical_features.squeeze(0) if features_type == 'spatial' else
-                numerical_features[train_slice].reshape(-1, numerical_features.shape[2])
-            )
+            if DO_TRANSFER_EVAL:
+                numerical_features_transform = joblib.load(f"{features_type}_features_scaler.pkl")
+            else:
+                numerical_features_transform = self.transforms[numerical_features_transform]()
+                numerical_features_transform.fit(
+                    numerical_features.squeeze(0) if features_type == 'spatial' else
+                    numerical_features[train_slice].reshape(-1, numerical_features.shape[2])
+                )
+
+            if DO_TRANSFER_TRAIN:
+                joblib.dump(numerical_features_transform, filename=f"{features_type}_features_scaler.pkl")
+                print(f'Saved {features_type} features scaler to {features_type}_features_scaler.pkl')
+
             numerical_features_orig_shape = numerical_features.shape
             numerical_features = numerical_features_transform.transform(
                 numerical_features.reshape(-1, numerical_features.shape[2])
@@ -775,13 +812,26 @@ class Dataset:
                     )
 
                 numerical_features = numerical_features.transpose(1, 0, 2)
-                numerical_features_imputer = SimpleImputer(missing_values=np.nan,
-                                                           strategy=numerical_features_nan_imputation_strategy,
-                                                           copy=False)
                 numerical_features_transposed_shape = numerical_features.shape
-                numerical_features = numerical_features_imputer.fit_transform(
-                    numerical_features.reshape(numerical_features.shape[0], -1)
-                ).reshape(*numerical_features_transposed_shape)
+
+                if DO_TRANSFER_EVAL:
+                    numerical_features_imputer = joblib.load(f"{features_type}_features_imputer.pkl")
+                    numerical_features = numerical_features_imputer.transform(
+                        numerical_features.reshape(numerical_features.shape[0], -1)
+                    ).reshape(*numerical_features_transposed_shape)
+                else:
+                    numerical_features_imputer = SimpleImputer(missing_values=np.nan,
+                                                            strategy=numerical_features_nan_imputation_strategy,
+                                                            copy=False)
+
+                    numerical_features = numerical_features_imputer.fit_transform(
+                        numerical_features.reshape(numerical_features.shape[0], -1)
+                    ).reshape(*numerical_features_transposed_shape)
+
+                if DO_TRANSFER_TRAIN:
+                    joblib.dump(numerical_features_imputer, filename=f"{features_type}_features_imputer.pkl")
+                    print(f'Saved {features_type} features imputer to {features_type}_features_imputer.pkl')
+
                 numerical_features = numerical_features.transpose(1, 0, 2)
 
             # Put transformed and imputed numerical features back into features array.
@@ -804,11 +854,21 @@ class Dataset:
             categorical_features_orig_shape = categorical_features.shape
             categorical_features = categorical_features.reshape(-1, categorical_features.shape[2])
 
-            one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32)
-            categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
+
+            if DO_TRANSFER_EVAL or DO_TRANSFER_TRAIN:
+                one_hot_encoder = joblib.load(f"{features_type}_features_ohe_encoder_OHE.pkl")
+                categorical_features_encoded = one_hot_encoder.transform(categorical_features)
+            else:
+                one_hot_encoder = OneHotEncoder(sparse_output=False, dtype=np.float32, handle_unknown="infrequent_if_exist")
+                categorical_features_encoded = one_hot_encoder.fit_transform(categorical_features)
+
             categorical_features_encoded = categorical_features_encoded.reshape(
                 *categorical_features_orig_shape[:2], categorical_features_encoded.shape[1]
             )
+
+            if DO_TRANSFER_TRAIN:
+                joblib.dump(one_hot_encoder, filename=f"{features_type}_features_ohe_encoder.pkl")
+                print(f'Saved {features_type} features OHE encoder to {features_type}_features_ohe_encoder.pkl')
 
             one_hot_encoder_output_feature_names = one_hot_encoder.get_feature_names_out(
                 input_features=np.array(feature_names, dtype=object)[categorical_features_mask]

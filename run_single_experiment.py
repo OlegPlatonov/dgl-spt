@@ -31,7 +31,7 @@ TEST_TARGETS_NAN_MASK = None
 
 def seed_everything(seed: int = 42):
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
+                                    
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = str(':4096:8')
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -588,7 +588,7 @@ def _compute_metrics_batched(preds, targets, targets_nan_mask, dataset, loss_fn,
         num_valid_total += cur_valid_mask.sum()
         
         # Per-timestamp means
-        num_timestamps = cur_targets.shape[1] if len(cur_targets.shape) > 1 else 1
+        num_timestamps = cur_targets.shape[-1] if len(cur_targets.shape) > 1 else 1
         for t_idx in eval_timestamps:
             if t_idx < num_timestamps:
                 if len(cur_targets.shape) > 1:
@@ -602,7 +602,7 @@ def _compute_metrics_batched(preds, targets, targets_nan_mask, dataset, loss_fn,
                 timestamp_accumulators[t_idx]['num_valid'] += cur_valid_mask_t.sum()
     
     targets_mean = targets_sum / num_valid_total
-    
+
     # Compute per-timestamp means
     timestamp_means = {}
     for t_idx in eval_timestamps:
