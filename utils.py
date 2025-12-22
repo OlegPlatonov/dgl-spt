@@ -152,7 +152,7 @@ class Logger:
             # Update best metrics
             self.best_val_primary_metrics[-1] = current_val_primary
             self.val_metrics[-1] = val_metrics_dict.copy()
-            
+
             if not self.do_not_evaluate_on_test:
                 test_metrics_dict = {k.replace('test ', ''): v for k, v in metrics.items() if k.startswith('test ')}
                 self.test_metrics[-1] = test_metrics_dict.copy()
