@@ -988,9 +988,9 @@ def main():
         import underdeep as U
         ud_client = U.Client(project=args.underdeep_project)
 
-    # создать эксперимент, если его ещё нет
-    exp = ud_client.experiments.add(code=args.underdeep_experiment)
-    ud_client.change_experiment(exp)
+        # создать эксперимент, если его ещё нет
+        exp = ud_client.experiments.add(code=args.underdeep_experiment)
+        ud_client.change_experiment(exp)
 
 
     seed_everything(SEED)
