@@ -5,9 +5,14 @@ import torch
 import numpy as np
 from torch.nn import functional as F
 from dataset import Dataset
-from run_single_experiment import compute_metric
+from run_single_experiment import compute_metrics
 from utils import DummyHandler
 
+import os
+
+TIMESTAMP = os.environ.get("TIMESTAMP")
+MODEL = os.environ.get("MODEL")
+DATASET = os.environ.get("DATASET")
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -66,13 +71,20 @@ def get_args():
 
 def compute_and_print_metrics(val_preds, test_preds, val_targets, test_targets, val_targets_nan_mask,
                               test_targets_nan_mask, dataset, loss_fn, metric, print_header):
-    val_metric = compute_metric(preds=val_preds, targets=val_targets, targets_nan_mask=val_targets_nan_mask,
-                                dataset=dataset, loss_fn=loss_fn, metric=metric, apply_transform_to_preds=False)
-    test_metric = compute_metric(preds=test_preds, targets=test_targets, targets_nan_mask=test_targets_nan_mask,
-                                 dataset=dataset, loss_fn=loss_fn, metric=metric, apply_transform_to_preds=False)
+    val_metric, _, _ = compute_metrics(preds=val_preds, targets=val_targets, targets_nan_mask=val_targets_nan_mask,
+                                dataset=dataset, loss_fn=loss_fn, metric=metric, apply_transform_to_preds=False, eval_timestamps=[])
+    test_metric, _, _ = compute_metrics(preds=test_preds, targets=test_targets, targets_nan_mask=test_targets_nan_mask,
+                                 dataset=dataset, loss_fn=loss_fn, metric=metric, apply_transform_to_preds=False, eval_timestamps=[])
 
-    print(print_header + ':')
-    print(f'val {metric}: {val_metric:.4f}, test {metric}: {test_metric:.4f}')
+    with open("prev_value.csv", "a") as f_write:
+        # print("model,metric,timestamp,dataset,value_mean,value_std", file=f_write)
+        print(print_header + ':')
+        for split, metrics_dict in zip(["Val", "Test"], [val_metric, test_metric]):
+            for metric_name, metric_value in metrics_dict.items():
+                print(f"{split} {metric_name}: {metric_value:.4f}")
+        # print(f'val {metric}: {val_metric:.4f}, test {metric}: {test_metric:.4f}')
+                if split == "Val":
+                    print(f"{MODEL},{metric_name},{TIMESTAMP},{DATASET},{metric_value},{None}", file=f_write)
     print()
 
 
