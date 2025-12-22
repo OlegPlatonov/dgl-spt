@@ -64,7 +64,6 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
             results.append(pulsar_metric_dict)
 
 
-
         for metric_type in nested_metrics:
             metric_type_dict = metrics[metric_type]
             for metric_type_name, metric_value in metric_type_dict.items():
@@ -78,6 +77,19 @@ for exp_dir in experimetal_results_dir.glob("*/*"):
                 )
 
                 results.append(pulsar_metric_dict)
+
+        best_epoch_metric = dict(
+            value=metrics["best epochs"][0],
+            name="best val epoch",
+            **args,
+        )
+        best_step_metric = dict(
+            value=metrics["best steps"][0],
+            name="best val step",
+            **args,
+        )
+        results.append(best_epoch_metric)
+        results.append(best_step_metric)
 
     except FileNotFoundError:
         pass
