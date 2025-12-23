@@ -854,7 +854,7 @@ def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss
 
 def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr,
           weight_decay, run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None,
-          do_not_evaluate_on_test=False, nirvana=False, do_not_train=False,):
+          do_not_evaluate_on_test=False, nirvana=False, do_not_train=False, ud_run=None):
 
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True)
@@ -1129,7 +1129,7 @@ def main():
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
               device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
               do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana, state_handler=state_handler,
-              do_not_train=args.DO_NOT_TRAIN)
+              do_not_train=args.DO_NOT_TRAIN, ud_run=ud_run)
 
         state_handler.load_checkpoint()
 
