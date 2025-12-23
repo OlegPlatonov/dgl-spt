@@ -238,7 +238,7 @@ def get_args(add_name: bool = True):
     
     # RESNET parametrs
     parser.add_argument('--struct_use_degree', action='store_true', default=True)
-    parser.add_argument('--nfa_use', action='store_true', default=True)
+    parser.add_argument('--nfa_use', action='store_true', default=False)
     parser.add_argument('--nfa_dirs', type=str, choices=['in','out','both'], default='both')
 
 
@@ -908,8 +908,8 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
                 progress_bar.update()
                 progress_bar.set_postfix(
-                    {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                    {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
+                    {metric: f'{value:.6f}' for metric, value in metrics.items()} |
+                    {'cur step loss': f'{state_handler.loss.item():.8f}', 'epoch': epoch}
                 )
 
 
