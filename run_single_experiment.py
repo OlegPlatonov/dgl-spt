@@ -287,6 +287,9 @@ def get_args(add_name: bool = True):
                         help='Indicates whether to not to do checkpointing of features.')
     parser.add_argument('--checkpoint_steps_interval', type=int, default=1000,
                         help='Only used in Nirvana: interval for saving experiment state to $SNAPSHOT_PATH.')
+    parser.add_argument('--max_execution_time_sec', type=float, default=None,
+                        help='Максимальное время выполнения (сек). Учитывается только время работы процесса; '
+                             'при вытеснении/прерывании не идёт в зачёт. По истечении — финальная оценка и сохранение метрик.')
     parser.add_argument('--compile', default=False, action='store_true',
                         help='Enables model compilation.')
 
@@ -849,7 +852,7 @@ def evaluate(model, dataset, val_timestamps_loader, test_timestamps_loader, loss
 
 def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accumulation_steps, eval_every, lr,
           weight_decay, run_id, device, state_handler: StateHandler, amp=True, use_gradscaler=True, seed=None,
-          do_not_evaluate_on_test=False, nirvana=False, do_not_train=False,):
+          do_not_evaluate_on_test=False, nirvana=False, do_not_train=False, max_execution_time_sec=None):
 
     train_timestamps_loader = DataLoader(dataset.train_timestamps, batch_size=dataset.train_batch_size, shuffle=True,
                                          drop_last=True)
@@ -878,6 +881,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     train_timestamps_loader_iterator = iter(train_timestamps_loader)
     model.train()
     starting_step_idx = state_handler.steps_after_run_start
+    stopped_by_time_limit = False
     if not do_not_train:
         with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
             progress_bar.n = starting_step_idx
@@ -890,6 +894,10 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                 print(f'Skipped {starting_step_idx} in {(t2 - t1):.3f} seconds.')
 
             for step in range(starting_step_idx + 1, num_steps + 1):
+                if max_execution_time_sec is not None and logger.get_current_elapsed_time() >= max_execution_time_sec:
+                    print(f'Достигнут лимит времени выполнения {max_execution_time_sec} сек. Останавливаем обучение.')
+                    stopped_by_time_limit = True
+                    break
                 cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
                 state_handler.loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
                                             loss_fn=loss_fn, amp=amp)
@@ -939,6 +947,13 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                     if epoch < num_epochs: # prevent state handler to save 3 checkpoints at the same time on the last step
                         state_handler.finish_epoch()
                     # check that logger, model and optimizer are shared also for state wrapper
+
+        if stopped_by_time_limit:
+            model.eval()
+            metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
+                              test_timestamps_loader=test_timestamps_loader, loss_fn=loss_fn, metric=metric,
+                              amp=amp, do_not_evaluate_on_test=do_not_evaluate_on_test)
+            logger.update_metrics(metrics=metrics, step=state_handler.optimizer_steps_done, epoch=epoch)
     else:
         # einference:
         model.eval()
@@ -959,8 +974,8 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
         TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
     )
 
-
     model.cpu()
+    return stopped_by_time_limit
 
 
 def main():
@@ -1091,29 +1106,32 @@ def main():
         if args.compile:
             model = torch.compile(model, dynamic=True, mode='reduce-overhead')
 
-        train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
+        stopped_by_time = train(model=model, dataset=dataset, loss_fn=loss_fn, metric=args.metric, logger=logger,
               num_epochs=args.num_epochs, num_accumulation_steps=args.num_accumulation_steps,
               eval_every=args.eval_every, lr=args.lr, weight_decay=args.weight_decay, run_id=run,
               device=args.device, amp=not args.no_amp, use_gradscaler=not args.no_gradscaler, seed=run,
               do_not_evaluate_on_test=args.do_not_evaluate_on_test, nirvana=args.nirvana, state_handler=state_handler,
-              do_not_train=args.DO_NOT_TRAIN)
+              do_not_train=args.DO_NOT_TRAIN, max_execution_time_sec=args.max_execution_time_sec)
 
         state_handler.load_checkpoint()
 
-
-
         PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
-        if args.save_preds is not None:
-            torch.save(
-                dict(
-                    TEST_PREDICTIONS=TEST_PREDICTIONS,
-                    TEST_TARGETS=TEST_TARGETS,
-                    TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-                ),
-                PREDS_STATE_FILENAME
-            )
-            
+        torch.save(
+            dict(
+                VAL_PREDICTIONS=VAL_PREDICTIONS,
+                VAL_TARGETS=VAL_TARGETS,
+                VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
+                TEST_PREDICTIONS=TEST_PREDICTIONS,
+                TEST_TARGETS=TEST_TARGETS,
+                TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
+            ),
+            PREDS_STATE_FILENAME
+        )
         copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
+
+        if stopped_by_time:
+            print('Остановка по лимиту времени. Дальнейшие runs не запускаются.')
+            break
 
     logger.print_metrics_summary()
 

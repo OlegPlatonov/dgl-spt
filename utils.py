@@ -53,6 +53,12 @@ class Logger:
 
         self._start_time = perf_counter()
 
+    def get_current_elapsed_time(self) -> float:
+        """Текущее накопленное время выполнения (без времени вытеснения). Не обновляет состояние."""
+        if self.elapsed_time is None:
+            return 0.0
+        return self.elapsed_time + (perf_counter() - self._start_time)
+
     def set_parameters_from_restarted_job(self, val_metrics, test_metrics, cur_run, best_steps, best_epochs, 
                                          save_dir, current_run_already_started, elapsed_time, max_memory_allocated,
                                          best_val_primary_metrics=None, best_test_primary_metrics=None):
