@@ -38,8 +38,8 @@ def copy_out_to_snapshot(out, dump=True):
         snapshot_path = nirvana_dl.snapshot.get_snapshot_path()
         print(f"Copy {out} to the snapshot path: {snapshot_path}")
 
-        # Delete previous state to avoid memory explosion
-        os.system(f"rm {snapshot_path}/state")
+        # Delete previous state to avoid memory explosion (-f: не ошибка, если файла нет)
+        os.system(f"rm -f {snapshot_path}/state")
         copy_tree(out, snapshot_path, update=1)
 
         if dump:
