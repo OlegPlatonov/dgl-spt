@@ -964,7 +964,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
     logger.finish_run()
 
-    state_handler.finish_run({})
+    state_handler.finish_run({}, skip_snapshot_dump=stopped_by_time_limit)
     predictions_targets_dict=dict(
         VAL_PREDICTIONS=VAL_PREDICTIONS,
         VAL_TARGETS=VAL_TARGETS,
@@ -1116,17 +1116,24 @@ def main():
         state_handler.load_checkpoint()
 
         PREDS_STATE_FILENAME = CHECKPOINT_DIR / 'preds.pt'
-        torch.save(
-            dict(
-                VAL_PREDICTIONS=VAL_PREDICTIONS,
-                VAL_TARGETS=VAL_TARGETS,
-                VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
-                TEST_PREDICTIONS=TEST_PREDICTIONS,
-                TEST_TARGETS=TEST_TARGETS,
-                TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
-            ),
-            PREDS_STATE_FILENAME
-        )
+        if not stopped_by_time:
+            torch.save(
+                dict(
+                    VAL_PREDICTIONS=VAL_PREDICTIONS,
+                    VAL_TARGETS=VAL_TARGETS,
+                    VAL_TARGETS_NAN_MASK=VAL_TARGETS_NAN_MASK,
+                    TEST_PREDICTIONS=TEST_PREDICTIONS,
+                    TEST_TARGETS=TEST_TARGETS,
+                    TEST_TARGETS_NAN_MASK=TEST_TARGETS_NAN_MASK,
+                ),
+                PREDS_STATE_FILENAME
+            )
+        else:
+            # Остановка по лимиту времени: в snapshot копируем только метрики (без тяжёлых preds и state)
+            if CHECKPOINT_STATE_FILENAME.exists():
+                CHECKPOINT_STATE_FILENAME.unlink()
+            print("Остановка по лимиту времени: в snapshot копируем только метрики (без state.pt и preds.pt).")
+
         copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
 
         if stopped_by_time:
