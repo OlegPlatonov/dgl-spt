@@ -540,11 +540,11 @@ class NirvanaStateHandler(StateHandler):
 
         overall_state_dict.update(self.predictions_targets_dict)
 
-        torch.save(overall_state_dict, f=self.checkpoint_file_path)
         if not skip_snapshot_dump:
+            torch.save(overall_state_dict, f=self.checkpoint_file_path)
             copy_out_to_snapshot(self.checkpoint_dir, dump=True)
         else:
-            print("Пропуск копирования в snapshot (остановка по лимиту времени, сохраняем только метрики).")
+            print("Остановка по лимиту времени: state.pt не пишем, в snapshot копируем только метрики (экономим диск).")
 
     def step(self) -> None:
         self.steps_after_run_start += 1

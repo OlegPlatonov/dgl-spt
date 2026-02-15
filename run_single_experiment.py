@@ -882,6 +882,10 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     model.train()
     starting_step_idx = state_handler.steps_after_run_start
     stopped_by_time_limit = False
+    if max_execution_time_sec is not None:
+        print(f'Лимит времени выполнения: {max_execution_time_sec} сек ({max_execution_time_sec / 3600:.1f} ч). Текущее время: {logger.get_current_elapsed_time():.0f} сек.')
+    else:
+        print('Лимит времени выполнения не задан (max_execution_time_sec=None).')
     if not do_not_train:
         with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
             progress_bar.n = starting_step_idx
@@ -926,6 +930,13 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                     optimizer_steps_till_eval == 0 or
                     train_timestamps_loader_iterator._num_yielded == len(train_timestamps_loader)
                 ):
+                    elapsed = logger.get_current_elapsed_time()
+                    if max_execution_time_sec is not None:
+                        print(f'[Лимит времени] прошло {elapsed:.0f} сек, лимит {max_execution_time_sec} сек.', flush=True)
+                    if max_execution_time_sec is not None and elapsed >= max_execution_time_sec:
+                        print(f'Достигнут лимит времени выполнения {max_execution_time_sec} сек (перед оценкой). Останавливаем обучение.')
+                        stopped_by_time_limit = True
+                        break
                     progress_bar.set_postfix_str('     Evaluating...     ' + progress_bar.postfix)
                     model.eval()
                     metrics = evaluate(model=model, dataset=dataset, val_timestamps_loader=val_timestamps_loader,
@@ -991,6 +1002,8 @@ def main():
     CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / 'state.pt'
 
     checkpoint_steps_interval = args.checkpoint_steps_interval
+    if args.max_execution_time_sec is not None and args.nirvana:
+        checkpoint_steps_interval = 2**31 - 1  # по сути отключаем чекпоинты во время обучения — экономим диск
     if args.nirvana:
         state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
                                                           checkpoint_dir=CHECKPOINT_DIR,
@@ -1129,9 +1142,7 @@ def main():
                 PREDS_STATE_FILENAME
             )
         else:
-            # Остановка по лимиту времени: в snapshot копируем только метрики (без тяжёлых preds и state)
-            if CHECKPOINT_STATE_FILENAME.exists():
-                CHECKPOINT_STATE_FILENAME.unlink()
+            # Остановка по лимиту времени: preds не сохраняли, state.pt не писали — в snapshot только метрики
             print("Остановка по лимиту времени: в snapshot копируем только метрики (без state.pt и preds.pt).")
 
         copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
