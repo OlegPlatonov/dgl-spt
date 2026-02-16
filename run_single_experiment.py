@@ -1002,8 +1002,6 @@ def main():
     CHECKPOINT_STATE_FILENAME = CHECKPOINT_DIR / 'state.pt'
 
     checkpoint_steps_interval = args.checkpoint_steps_interval
-    if args.max_execution_time_sec is not None and args.nirvana:
-        checkpoint_steps_interval = 2**31 - 1  # по сути отключаем чекпоинты во время обучения — экономим диск
     if args.nirvana:
         state_handler: StateHandler = NirvanaStateHandler(checkpoint_file_path=CHECKPOINT_STATE_FILENAME,
                                                           checkpoint_dir=CHECKPOINT_DIR,
