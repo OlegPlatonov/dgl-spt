@@ -167,31 +167,39 @@ class BigST(BaseModel):
     BigST backbone adapted for the dgl-spt pipeline.
 
     Differences from the original:
-    - No node_emb_layer, time_emb_layer, week_emb_layer (handled by dgl-spt features).
-    - input_fc projects from seq_len * input_dim (pre-embedded features) instead of
-      output_length * in_dim (raw speed + time + weekday).
-    - W_1 / W_2 query/key projections operate on the projected input features.
+    - time_emb_layer and week_emb_layer are removed (handled by dgl-spt features).
+    - node_emb_layer is kept: it provides stable per-node identity signals for the
+      linearized attention query/key (W_1/W_2), matching the original architecture.
+    - input_fc projects from seq_len * input_dim (pre-embedded features).
+    - The main representation concatenates [input_emb, node_emb] (2 * hid_dim).
     - No regression layer (output projection is in the adapter).
     """
 
-    def __init__(self, num_layers, hid_dim, tau, random_feature_dim, dropout,
-                 use_residual=True, use_bn=True, **args):
+    def __init__(self, num_layers, hid_dim, node_dim, num_nodes, tau, random_feature_dim,
+                 dropout, use_residual=True, use_bn=True, **args):
         super().__init__(**args)
         self.num_layers = num_layers
         self.hid_dim = hid_dim
+        self.node_dim = node_dim
+        self.num_nodes = num_nodes
         self.use_residual = use_residual
         self.use_bn = use_bn
 
+        repr_dim = hid_dim + node_dim
+
         self.input_fc = nn.Conv2d(self.seq_len * self.input_dim, hid_dim, kernel_size=(1, 1), bias=True)
 
-        self.W_1 = nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=True)
-        self.W_2 = nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=True)
+        self.node_emb_layer = nn.Parameter(torch.empty(num_nodes, node_dim))
+        nn.init.xavier_uniform_(self.node_emb_layer)
+
+        self.W_1 = nn.Conv2d(node_dim, hid_dim, kernel_size=(1, 1), bias=True)
+        self.W_2 = nn.Conv2d(node_dim, hid_dim, kernel_size=(1, 1), bias=True)
 
         self.linear_conv = nn.ModuleList()
         self.bn = nn.ModuleList()
         for _ in range(num_layers):
-            self.linear_conv.append(_LinearizedConv(hid_dim, dropout, tau, random_feature_dim))
-            self.bn.append(nn.LayerNorm(hid_dim))
+            self.linear_conv.append(_LinearizedConv(repr_dim, dropout, tau, random_feature_dim))
+            self.bn.append(nn.LayerNorm(repr_dim))
 
         self.activation = nn.ReLU()
 
@@ -200,10 +208,17 @@ class BigST(BaseModel):
         B, N, T, D = x.size()
 
         x = x.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1)  # (B, T*D, N, 1)
-        x = self.input_fc(x)  # (B, hid_dim, N, 1)
+        input_emb = self.input_fc(x)  # (B, hid_dim, N, 1)
 
-        node_vec1 = self.W_1(x).permute(0, 2, 3, 1)  # (B, N, 1, hid_dim)
-        node_vec2 = self.W_2(x).permute(0, 2, 3, 1)
+        num_repeats = N // self.num_nodes
+        node_emb = self.node_emb_layer.repeat(num_repeats, 1)  # (N, node_dim)
+        node_emb = node_emb.unsqueeze(0).expand(B, -1, -1)  # (B, N, node_dim)
+        node_emb = node_emb.transpose(1, 2).unsqueeze(-1)  # (B, node_dim, N, 1)
+
+        node_vec1 = self.W_1(node_emb).permute(0, 2, 3, 1)  # (B, N, 1, hid_dim)
+        node_vec2 = self.W_2(node_emb).permute(0, 2, 3, 1)
+
+        x = torch.cat([input_emb, node_emb], dim=1)  # (B, repr_dim, N, 1)
 
         x_pool = [x]
         for i in range(self.num_layers):
@@ -216,6 +231,6 @@ class BigST(BaseModel):
                 x = self.bn[i](x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
             x_pool.append(x)
 
-        x = torch.cat(x_pool, dim=1)  # (B, hid_dim * (num_layers + 1), N, 1)
+        x = torch.cat(x_pool, dim=1)  # (B, repr_dim * (num_layers + 1), N, 1)
         x = self.activation(x)
         return x

@@ -388,6 +388,7 @@ class BaselineModel(SequenceInputModel):
                                                 spatial_kernel_size=spatial_kernel_size,
                                                 seq_length=seq_encoder_seq_len,
                                                 num_nodes_batched=num_nodes * batch_size,
+                                                num_nodes=num_nodes,
                                                 edge_index_batched=edge_index_batched,
                                                 dropout=dropout,
                                                 **kwargs)

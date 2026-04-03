@@ -927,8 +927,10 @@ class BigSTAdapter(nn.Module):
     def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim,
                  normalization_name, seq_length, num_nodes_batched,
                  dropout, bigst_tau, bigst_random_feature_dim,
-                 bigst_hidden_dim, **kwargs):
+                 bigst_hidden_dim, num_nodes, **kwargs):
         super().__init__()
+
+        node_dim = bigst_hidden_dim
 
         self.backbone = BigST(
             node_num=num_nodes_batched,
@@ -938,12 +940,15 @@ class BigSTAdapter(nn.Module):
             seq_len=seq_length,
             num_layers=num_spatiotemporal_blocks,
             hid_dim=bigst_hidden_dim,
+            node_dim=node_dim,
+            num_nodes=num_nodes,
             tau=bigst_tau,
             random_feature_dim=bigst_random_feature_dim,
             dropout=dropout,
         )
 
-        out_channels = bigst_hidden_dim * (num_spatiotemporal_blocks + 1)
+        repr_dim = bigst_hidden_dim + node_dim
+        out_channels = repr_dim * (num_spatiotemporal_blocks + 1)
         NormalizationModule = NORMALIZATION_MODULES[normalization_name]
         self.output_normalization = NormalizationModule(out_channels)
         self.output_linear = nn.Linear(in_features=out_channels, out_features=output_dim)
