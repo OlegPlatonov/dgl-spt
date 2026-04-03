@@ -214,7 +214,7 @@ def get_args(add_name: bool = True):
     # baseline parameters were moved separately from main parameters. Please don't change it as it's going on right now in nirvana
     # temporal_* are used both in baselines and SequenceInputGNN models
     parser.add_argument('--baseline_name', type=str, default='DCRNN',
-                        choices=['AGCRN', 'ASTGCN', 'DCRNN', 'EGCN', 'GWN', 'GGN',
+                        choices=['AGCRN', 'ASTGCN', 'BigST', 'DCRNN', 'EGCN', 'GWN', 'GGN',
                                  'GRUGCN', 'GWNv2', 'STGCN', 'STGODE', 'STTN'])
     parser.add_argument('--num_spatiotemporal_blocks', type=int, default=2,
                         help='Number of spatiotemporal blocks in time-and-space baseline models.')
@@ -234,6 +234,17 @@ def get_args(add_name: bool = True):
                         help='Dilation for temporal convolutions.')
     parser.add_argument('--spatial_kernel_size', type=int, default=2,
                         help='Kernel size for spatial convolutions.')
+
+    # BigST-specific hyperparameters.
+    parser.add_argument('--bigst_hidden_dim', type=int, default=32,
+                        help='Internal hidden dimension for BigST linearized convolutions. '
+                             'Only used if baseline_name is BigST.')
+    parser.add_argument('--bigst_tau', type=float, default=0.25,
+                        help='Temperature coefficient for BigST softmax kernel approximation. '
+                             'Only used if baseline_name is BigST.')
+    parser.add_argument('--bigst_random_feature_dim', type=int, default=64,
+                        help='Random feature dimension for BigST FAVOR+ attention approximation. '
+                             'Only used if baseline_name is BigST.')
 
     # Common parameters (not baselines-exclusively)
     parser.add_argument('--hidden_dim', type=int, default=512,
@@ -883,9 +894,9 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
     starting_step_idx = state_handler.steps_after_run_start
     stopped_by_time_limit = False
     if max_execution_time_sec is not None:
-        print(f'Лимит времени выполнения: {max_execution_time_sec} сек ({max_execution_time_sec / 3600:.1f} ч). Текущее время: {logger.get_current_elapsed_time():.0f} сек.')
+        print(f'Лимит времени выполнения: {max_execution_time_sec} сек ({max_execution_time_sec / 3600:.1f} ч). Текущее время: {logger.get_current_elapsed_time():.0f} сек.', flush=True)
     else:
-        print('Лимит времени выполнения не задан (max_execution_time_sec=None).')
+        print('Лимит времени выполнения не задан (max_execution_time_sec=None).', flush=True)
     if not do_not_train:
         with tqdm(total=num_steps, desc=f'Run {run_id}') as progress_bar:
             progress_bar.n = starting_step_idx
@@ -1107,7 +1118,10 @@ def main():
             plr_past_targets_frequencies_scale=args.plr_past_targets_frequencies_scale,
             plr_past_targets_embedding_dim=args.plr_past_targets_embedding_dim,
             plr_past_targets_shared_linear=args.plr_past_targets_shared_linear,
-            plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies
+            plr_past_targets_shared_frequencies=args.plr_past_targets_shared_frequencies,
+            bigst_hidden_dim=args.bigst_hidden_dim,
+            bigst_tau=args.bigst_tau,
+            bigst_random_feature_dim=args.bigst_random_feature_dim,
         )
 
         if args.MODEL_STATE is not None:

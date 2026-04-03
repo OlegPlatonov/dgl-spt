@@ -11,7 +11,7 @@ from plr_embeddings import PLREmbeddings
 from utils import _check_dim_and_num_heads_consistency
 
 from baselines import (
-    AGCRN, ASTGCN, GWN, STGCN, STGODE, STTN,
+    AGCRN, ASTGCN, BigST, GWN, STGCN, STGODE, STTN,
     calculate_scaled_laplacian_matrix,
     calculate_transition_matrix,
     calculate_cheb_polynomials,
@@ -923,6 +923,42 @@ class STTNAdapter(nn.Module):
         return x
 
 
+class BigSTAdapter(nn.Module):
+    def __init__(self, num_spatiotemporal_blocks, hidden_dim, output_dim,
+                 normalization_name, seq_length, num_nodes_batched,
+                 dropout, bigst_tau, bigst_random_feature_dim,
+                 bigst_hidden_dim, **kwargs):
+        super().__init__()
+
+        self.backbone = BigST(
+            node_num=num_nodes_batched,
+            input_dim=hidden_dim,
+            output_dim=1,
+            horizon=output_dim,
+            seq_len=seq_length,
+            num_layers=num_spatiotemporal_blocks,
+            hid_dim=bigst_hidden_dim,
+            tau=bigst_tau,
+            random_feature_dim=bigst_random_feature_dim,
+            dropout=dropout,
+        )
+
+        out_channels = bigst_hidden_dim * (num_spatiotemporal_blocks + 1)
+        NormalizationModule = NORMALIZATION_MODULES[normalization_name]
+        self.output_normalization = NormalizationModule(out_channels)
+        self.output_linear = nn.Linear(in_features=out_channels, out_features=output_dim)
+
+    def forward(self, x, *args):
+        # x: [N_batched, T, hidden_dim]
+        x = x.unsqueeze(0)  # [1, N_batched, T, hidden_dim]  (B=1, N=N_batched)
+        x = self.backbone(x)  # (1, out_channels, N_batched, 1)
+        x = x.squeeze(-1).squeeze(0).T  # (N_batched, out_channels)
+
+        x = self.output_normalization(x)
+        x = self.output_linear(x).squeeze(1)
+        return x
+
+
 BASELINE_ADAPTERS = {
     ### torch spatiotemporal
     'DCRNN': DCRNNAdapter,
@@ -934,6 +970,7 @@ BASELINE_ADAPTERS = {
     ### large-st repository
     'AGCRN': AGCRNAdapter,
     'ASTGCN': ASTGCNAdapter,
+    'BigST': BigSTAdapter,
     'GWNv2': GWNv2Adapter,
     'STGCN': STGCNAdapter,
     'STGODE': STGODEAdapter,

@@ -389,7 +389,8 @@ class BaselineModel(SequenceInputModel):
                                                 seq_length=seq_encoder_seq_len,
                                                 num_nodes_batched=num_nodes * batch_size,
                                                 edge_index_batched=edge_index_batched,
-                                                dropout=dropout)
+                                                dropout=dropout,
+                                                **kwargs)
 
     def forward(self, graph, x):
         edge_index = graph  # here we explicitly tell that graph is represented as edge index instead of other objects

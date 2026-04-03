@@ -57,7 +57,7 @@ class Dataset:
             name = name_or_path
             path = f'{DATA_ROOT}/{name.replace("-", "_")}.npz'
 
-        print('Preparing data...')
+        print('Preparing data...', flush=True)
         if nirvana and not os.environ.get('LOCAL'):
             data = NirvanaNpzDataWrapper(root_path=DATA_ROOT)
         else:
@@ -229,7 +229,7 @@ class Dataset:
         numerical_temporal_features_mask, numerical_spatial_features_mask, numerical_spatiotemporal_features_mask = \
             numerical_features_masks_by_group
 
-        print(f"AFTER PROCESSING: {temporal_features.shape=} {spatial_features.shape=} {spatiotemporal_features.shape=}")
+        print(f"AFTER PROCESSING: {temporal_features.shape=} {spatial_features.shape=} {spatiotemporal_features.shape=}", flush=True)
 
         # Add time-based features.
         if time_based_features_types and time_based_features_periods:
@@ -796,12 +796,13 @@ class Dataset:
                 categorical_features_mask[i] = True
 
         if skip:
-            print(f'Skipped preprocessing {features_type} features.')
+            print(f'Skipped preprocessing {features_type} features.', flush=True)
             return features, feature_names, numerical_features_mask
 
         print(
             f'{features_type=} {features.shape=} {feature_names=} '
-            f'{numerical_features_mask=} {categorical_features_mask=} '
+            f'{numerical_features_mask=} {categorical_features_mask=} ',
+            flush=True,
         )
 
         # Transform numerical features and impute NaNs in numerical features.
@@ -926,7 +927,7 @@ class Dataset:
             feature_names = feature_names_new
             numerical_features_mask = np.array(numerical_features_mask_new, dtype=bool)
 
-        print(f'Processed {features_type} features.')
+        print(f'Processed {features_type} features.', flush=True)
         if checkpoint_dir.exists() and nirvana and not disable_features_checkpointing:  # NOTE we'll never step on this line for already preprocessed features, so there is no need to create additional conditions 
             print(f"Saved prepared {features_type} features for further checkpointing")
             prepared_features_file = str(checkpoint_dir / f"__{features_type}_features_prepared.npy")

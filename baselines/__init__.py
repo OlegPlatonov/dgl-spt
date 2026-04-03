@@ -1,5 +1,6 @@
 from .agcrn import AGCRN
 from .astgcn import ASTGCN
+from .bigst import BigST
 # from .dcrnn import DCRNN
 # from .dgcrn import DGCRN
 from .dstagnn import DSTAGNN
