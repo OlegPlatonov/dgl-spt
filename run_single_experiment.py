@@ -328,12 +328,18 @@ def compute_loss(model, dataset: Dataset, timestamps_batch, loss_fn, amp=True):
         preds = model(graph=dataset.train_batched_graph, x=features)
         loss = loss_fn(input=preds, target=targets, reduction='none')
         loss[targets_nan_mask] = 0
-        loss = loss.sum() / (~targets_nan_mask).sum()
+        denom = (~targets_nan_mask).sum().clamp(min=1)
+        loss = loss.sum() / denom
 
-        if torch.isnan(loss):
-            breakpoint()
+    loss_ok = bool(torch.isfinite(loss).item())
+    if not loss_ok:
+        print(
+            'WARNING: non-finite training loss (NaN/Inf); skipping backward for this batch. '
+            'Consider --no_amp, lower lr, or BigST hyperparameters.',
+            flush=True,
+        )
 
-    return loss
+    return loss, loss_ok
 
 
 def optimizer_step(optimizer, gradscaler):
@@ -914,22 +920,26 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
                     stopped_by_time_limit = True
                     break
                 cur_train_timestamps_batch = next(train_timestamps_loader_iterator)
-                state_handler.loss = compute_loss(model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
-                                            loss_fn=loss_fn, amp=amp)
-
-                steps_till_optimizer_step -= 1
-
-                # we backward for each minibatch to free computation graph
-                gradscaler.scale(state_handler.loss / num_accumulation_steps).backward()
-
-                progress_bar.update()
-                progress_bar.set_postfix(
-                    {metric: f'{value:.2f}' for metric, value in metrics.items()} |
-                    {'cur step loss': f'{state_handler.loss.item():.2f}', 'epoch': epoch}
+                state_handler.loss, loss_ok = compute_loss(
+                    model=model, dataset=dataset, timestamps_batch=cur_train_timestamps_batch,
+                    loss_fn=loss_fn, amp=amp,
                 )
 
+                if loss_ok:
+                    steps_till_optimizer_step -= 1
+                    # we backward for each minibatch to free computation graph
+                    gradscaler.scale(state_handler.loss / num_accumulation_steps).backward()
 
-                if steps_till_optimizer_step == 0:
+                progress_bar.update()
+                loss_str = (
+                    f'{state_handler.loss.item():.2f}' if loss_ok else f'{state_handler.loss.item()} (skipped)'
+                )
+                progress_bar.set_postfix(
+                    {metric: f'{value:.2f}' for metric, value in metrics.items()} |
+                    {'cur step loss': loss_str, 'epoch': epoch}
+                )
+
+                if loss_ok and steps_till_optimizer_step == 0:
                     optimizer_step(optimizer=optimizer, gradscaler=gradscaler)
                     state_handler.loss = 0
                     state_handler.optimizer_steps_done += 1
@@ -986,7 +996,7 @@ def train(model, dataset, loss_fn, metric, logger: Logger, num_epochs, num_accum
 
     logger.finish_run()
 
-    state_handler.finish_run({}, skip_snapshot_dump=stopped_by_time_limit)
+    state_handler.finish_run({})
     predictions_targets_dict=dict(
         VAL_PREDICTIONS=VAL_PREDICTIONS,
         VAL_TARGETS=VAL_TARGETS,
@@ -1154,8 +1164,7 @@ def main():
                 PREDS_STATE_FILENAME
             )
         else:
-            # Остановка по лимиту времени: preds не сохраняли, state.pt не писали — в snapshot только метрики
-            print("Остановка по лимиту времени: в snapshot копируем только метрики (без state.pt и preds.pt).")
+            print("Остановка по лимиту времени: preds.pt не сохраняем, но state.pt (с весами модели) сохранён.")
 
         copy_out_to_snapshot(CHECKPOINT_DIR, dump=True)
 

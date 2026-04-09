@@ -457,7 +457,7 @@ class StateHandler:
     def finish_epoch(self) -> None:
         pass
 
-    def finish_run(self, predictions_targets_dict: dict[str, torch.Tensor], skip_snapshot_dump: bool = False) -> None:
+    def finish_run(self, predictions_targets_dict: dict[str, torch.Tensor]) -> None:
         del self.model
         del self.optimizer
         del self.grad_scaler
@@ -466,7 +466,7 @@ class StateHandler:
         self.optimizer = ...
         self.grad_scaler = ...
 
-    def save_checkpoint(self, finish_run: bool = False, skip_snapshot_dump: bool = False) -> None:
+    def save_checkpoint(self, finish_run: bool = False) -> None:
         pass
 
 
@@ -510,7 +510,7 @@ class NirvanaStateHandler(StateHandler):
             self.loss = state_dict["loss"]
             self.num_runs_completed = state_dict["runs_completed"]
 
-    def save_checkpoint(self, finish_run: bool = False, skip_snapshot_dump: bool = False) -> None:
+    def save_checkpoint(self, finish_run: bool = False) -> None:
         print(f"Saving checkpoint to {self.checkpoint_file_path}")
         if finish_run:
             # if run is finished, there is no need to save model's weights and optimizer
@@ -540,11 +540,8 @@ class NirvanaStateHandler(StateHandler):
 
         overall_state_dict.update(self.predictions_targets_dict)
 
-        if not skip_snapshot_dump:
-            torch.save(overall_state_dict, f=self.checkpoint_file_path)
-            copy_out_to_snapshot(self.checkpoint_dir, dump=True)
-        else:
-            print("Остановка по лимиту времени: state.pt не пишем, в snapshot копируем только метрики (экономим диск).")
+        torch.save(overall_state_dict, f=self.checkpoint_file_path)
+        copy_out_to_snapshot(self.checkpoint_dir, dump=True)
 
     def step(self) -> None:
         self.steps_after_run_start += 1
@@ -555,10 +552,10 @@ class NirvanaStateHandler(StateHandler):
         self.epochs_finished += 1
         self.save_checkpoint()
 
-    def finish_run(self, predictions_targets_dict: dict[str, torch.Tensor], skip_snapshot_dump: bool = False) -> None:
+    def finish_run(self, predictions_targets_dict: dict[str, torch.Tensor]) -> None:
         self.predictions_targets_dict = predictions_targets_dict
         self.num_runs_completed += 1
-        self.save_checkpoint(finish_run=True, skip_snapshot_dump=skip_snapshot_dump)
+        self.save_checkpoint(finish_run=True)
         super().finish_run(predictions_targets_dict)
 
 
