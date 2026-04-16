@@ -89,6 +89,12 @@ def get_args(add_name: bool = True):
                              'forward (original) and reverse edges. Graph neighborhood aggregation wiil be run for '
                              'each edge type separately and its results will be concatenated before being passed '
                              'to the following MLP module in the model.')
+    parser.add_argument('--shuffle_edge_destinations', default=False, action='store_true',
+                        help='Randomly permute destination nodes (dst) across edges while preserving source nodes.')
+    parser.add_argument('--shuffle_edge_destinations_seed', type=int, default=42,
+                        help='Random seed used for destination-node edge shuffling.')
+    parser.add_argument('--shuffle_edge_mode', type=str, default='none', choices=['none', 'outgoing', 'incoming'],
+                        help='Edge shuffling mode: outgoing shuffles dst (preserve src), incoming shuffles src (preserve dst).')
 
     # The next two arguments can be used to transform targets from the future timestamps that will be used for loss
     # computation during training and targets from the past timestamps and the current timestamp that will be provided
@@ -1052,6 +1058,9 @@ def main():
         to_undirected=args.to_undirected,
         use_forward_and_reverse_edges_as_different_edge_types=\
             args.use_forward_and_reverse_edges_as_different_edge_types,
+        shuffle_edge_destinations=args.shuffle_edge_destinations,
+        shuffle_edge_destinations_seed=args.shuffle_edge_destinations_seed,
+        shuffle_edge_mode=args.shuffle_edge_mode,
         add_self_loops=args.do_not_separate_ego_node_representation,
         targets_for_loss_transform=args.targets_for_loss_transform,
         targets_for_features_transform=args.targets_for_features_transform,

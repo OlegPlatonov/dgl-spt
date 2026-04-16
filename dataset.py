@@ -35,6 +35,8 @@ class Dataset:
                  seasonal_lookback_periods=None, seasonal_lookback_num_steps=None,
                  drop_early_train_timestamps='direct',
                  reverse_edges=False, to_undirected=False, use_forward_and_reverse_edges_as_different_edge_types=False,
+                 shuffle_edge_destinations=False, shuffle_edge_destinations_seed=42,
+                 shuffle_edge_mode='none',
                  add_self_loops=False, targets_for_loss_transform='none', targets_for_features_transform='none',
                  targets_for_features_nan_imputation_strategy='prev', add_nan_indicators_to_targets_for_features=False,
                  do_not_use_temporal_features=False, do_not_use_spatial_features=False,
@@ -253,7 +255,25 @@ class Dataset:
             raise ValueError('At most one of the graph edge processing arguments reverse_edges, to_undirected, '
                              'use_forward_and_reverse_edges_as_different_edge_types can be True.')
 
-        edges = torch.from_numpy(data['edges'])
+        edges_np = data['edges'].copy()
+        # Backward compatibility: old flag maps to outgoing-mode shuffling.
+        if shuffle_edge_destinations and shuffle_edge_mode == 'none':
+            shuffle_edge_mode = 'outgoing'
+
+        if shuffle_edge_mode not in {'none', 'outgoing', 'incoming'}:
+            raise ValueError(
+                f'Unsupported shuffle_edge_mode: {shuffle_edge_mode}. '
+                f'Expected one of: none, outgoing, incoming.'
+            )
+
+        if shuffle_edge_mode != 'none':
+            rng = np.random.default_rng(shuffle_edge_destinations_seed)
+            if shuffle_edge_mode == 'outgoing':
+                rng.shuffle(edges_np[:, 1])
+            elif shuffle_edge_mode == 'incoming':
+                rng.shuffle(edges_np[:, 0])
+
+        edges = torch.from_numpy(edges_np)
 
         if use_forward_and_reverse_edges_as_different_edge_types:
             if use_edge_index:
@@ -291,13 +311,6 @@ class Dataset:
             # edges = torch.from_numpy(E)
 
             ### EXPERIMENT
-
-            ### ablation
-            # np.random.seed(42)
-            # E = data["edges"].copy()
-            # np.random.shuffle(E[:, 1])
-            # edges = torch.from_numpy(E)
-            ### ablation
 
             graph = dgl.graph((edges[:, 0], edges[:, 1]), num_nodes=num_nodes, idtype=torch.int32)
             if to_undirected:
