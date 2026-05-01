@@ -1,4 +1,4 @@
-# Metropolis-Scale Road Network Datasets for Fine-Grained Urban Traffic Modeling
+# Repository for `city-traffic` datasets NeurIPS 2026 Evaluations & Datasets Track
 
 # Installation
 To install all packages, you need to install `conda` package manager. Then, run the following commands: 
@@ -16,6 +16,11 @@ pip install -r requirements.txt
 ```
 
 # Datasets
+
+## Sample of the dataset
+According to NeurIPS Evaluations & Datasets Track Policy, we provide a sample of our datasets. We used `scripts/generate_sample.py` to create a representative sample of the dataset with bearable volume, as we chose 2-week period from `city-traffic-L-speed` dataset starting from the second week. Other that temporal slicing, we preserve other static features and structure. We split remaining timestamps on train/val/test like this: 7 days on train, 4 days on val, 3 days on test subsets.
+
+The sample is available in our anonymous Kaggle web-page by the name `city-traffic-L-speed-SAMPLE.npz` (for the link, see below).
 
 ## Access to `city-traffic-M/L`
 1) To access the datasets, download the files from Kaggle -- [datasets page](https://kaggle.com/datasets/edacf50144f353ac05592193d96eb7b6910b708ad8319806ce1dcf71f946743b).
