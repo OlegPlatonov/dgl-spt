@@ -20,10 +20,11 @@ pip install -r requirements.txt
 ## Sample of the dataset
 According to NeurIPS Evaluations & Datasets Track Policy, we provide a sample of our datasets. We used `scripts/generate_sample.py` to create a representative sample of the dataset with bearable volume, as we chose 2-week period from `city-traffic-L-speed` dataset starting from the second week. Other that temporal slicing, we preserve other static features and structure. We split remaining timestamps on train/val/test like this: 7 days on train, 4 days on val, 3 days on test subsets.
 
-The sample is available in our anonymous Kaggle web-page by the name `city-traffic-L-speed-SAMPLE.npz` (for the link, see below).
+The sample dataset is provided as a separate Kaggle dataset containing only the subset used for demonstration: [link to the sample subset](https://kaggle.com/datasets/b16d1183dc616f8834f26620854183889b74088f53d3bc9d5f58c39391c7f896).
+
 
 ## Access to `city-traffic-M/L`
-1) To access the datasets, download the files from Kaggle -- [datasets page](https://kaggle.com/datasets/edacf50144f353ac05592193d96eb7b6910b708ad8319806ce1dcf71f946743b).
+1) The full datasets are provided through a separate Kaggle dataset page, distinct from the sample subset: [link to the full datasets](https://kaggle.com/datasets/edacf50144f353ac05592193d96eb7b6910b708ad8319806ce1dcf71f946743b).
 2) After download, place the files in the `data` directory
 
 ## Datasets specifications
