@@ -21,16 +21,15 @@ def save_with_fallback(df: pd.DataFrame, out_base: Path):
         return fp
 
 
-# symbolic links to the full files:
 CITY_TRAFFIC_L_SPEED_PATH = "city_traffic_L_speed_link"
 CITY_TRAFFIC_L_VOLUME_PATH = "city_traffic_L_volume_link"
 
 TIMESTAMPS_OFFSET = 12 * 24 * 7 # get the second week of the dataset
 
-NUM_SAMPLE_TIMESTAMPS = 12 * 24 * 14 # timestamps in an hour x hours in a day x 2 weeks
+NUM_SAMPLE_TIMESTAMPS = 12 * 24 * 7 # timestamps in an hour x hours in a day x 1 week
 
-NUM_TRAIN_TIMESTAMPS = 12 * 24 * 7
-NUM_VAL_TIMESTAMPS = 12 * 24 * 4
+NUM_TRAIN_TIMESTAMPS = 12 * 24 * 3
+NUM_VAL_TIMESTAMPS = 12 * 24 * 2
 NUM_TEST_TIMESTAMPS = NUM_SAMPLE_TIMESTAMPS - NUM_TRAIN_TIMESTAMPS - NUM_VAL_TIMESTAMPS
 
 

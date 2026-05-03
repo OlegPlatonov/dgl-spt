@@ -18,7 +18,7 @@ pip install -r requirements.txt
 # Datasets
 
 ## Sample of the dataset
-According to NeurIPS Evaluations & Datasets Track Policy, we provide a sample of our datasets. We used `scripts/generate_sample.py` to create a representative sample of the dataset with bearable volume, as we chose 2-week period from `city-traffic-L-speed` dataset starting from the second week. Other that temporal slicing, we preserve other static features and structure. We split remaining timestamps on train/val/test like this: 7 days on train, 4 days on val, 3 days on test subsets.
+According to NeurIPS Evaluations & Datasets Track Policy, we provide a sample of our datasets. We used `scripts/generate_sample.py` to create a representative sample of the dataset with bearable volume, as we chose 1-week period from `city-traffic-L-speed` dataset starting from the second week. Other than temporal slicing, we preserve other static features and structure. We split remaining timestamps on train/val/test like this: 3 days on train, 2 days on val, 2 days on test subsets.
 
 The sample dataset is provided as a separate Kaggle dataset containing only the subset used for demonstration: [link to the sample subset](https://kaggle.com/datasets/b16d1183dc616f8834f26620854183889b74088f53d3bc9d5f58c39391c7f896).
 
