@@ -23,7 +23,7 @@ According to NeurIPS Evaluations & Datasets Track Policy, we provide a sample of
 The sample dataset is provided as a separate Kaggle dataset containing only the subset used for demonstration: [link to the sample subset](https://kaggle.com/datasets/b16d1183dc616f8834f26620854183889b74088f53d3bc9d5f58c39391c7f896).
 
 
-## Access to `city-traffic-M/L`
+## Access to full `city-traffic-M/L`
 1) The full datasets are provided through a separate Kaggle dataset page, distinct from the sample subset: [link to the full datasets](https://kaggle.com/datasets/edacf50144f353ac05592193d96eb7b6910b708ad8319806ce1dcf71f946743b).
 2) After download, place the files in the `data` directory
 
