@@ -129,6 +129,7 @@ If you want to add custom dataset, ensure that your `.npz` file contains all fie
 
 # Launch experiments
 
+
 To launch experiments on city-traffic-M/L datasets, you can use these snippets, according to their names in Kaggle:
 ```{bash}
 CITY_TRAFFIC_L_VOLUME=city_traffic_l_volume
@@ -146,6 +147,8 @@ DATASET=$CITY_TRAFFIC_M_SPEED
 ### Train models
 
 Here is the example of launching main experiment:
+
+**Note!** The SVR-GNN model proposed in our work is implemented in our code via `--model_class=SingleInputGNN` and `--neighborhood_aggregation=MeanAggr`.
 
 ```{bash}
 python run_single_experiment.py \
